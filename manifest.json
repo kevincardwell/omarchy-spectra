@@ -1,0 +1,117 @@
+{
+  "schemaVersion": 1,
+  "id": "jasper.pulsebar",
+  "name": "Pulsebar",
+  "version": "1.0.0",
+  "author": "Jasper",
+  "license": "MIT",
+  "description": "Audio spectrum for the Omarchy bar. One cava process for every monitor, frame-smoothed bars with peak-hold caps, and it folds away when the room goes quiet.",
+  "kinds": [
+    "service",
+    "bar-widget"
+  ],
+  "entryPoints": {
+    "service": "Service.qml",
+    "barWidget": "BarWidget.qml"
+  },
+  "barWidget": {
+    "displayName": "Pulsebar",
+    "description": "Audio spectrum visualiser",
+    "category": "Audio",
+    "allowMultiple": false,
+    "defaultSection": "left",
+    "defaults": {
+      "bars": 24,
+      "barWidth": 3,
+      "gap": 2,
+      "mode": "Bottom",
+      "color": "Accent",
+      "peakHold": true,
+      "autoHide": true,
+      "sensitivity": 100,
+      "framerate": 60
+    },
+    "schema": [
+      {
+        "key": "bars",
+        "type": "integer",
+        "label": "Bars",
+        "description": "How many frequency bands to draw.",
+        "min": 4,
+        "max": 64,
+        "step": 1,
+        "defaultValue": 24
+      },
+      {
+        "key": "barWidth",
+        "type": "integer",
+        "label": "Bar width",
+        "description": "Width of a single bar in logical pixels.",
+        "min": 1,
+        "max": 12,
+        "step": 1,
+        "defaultValue": 3
+      },
+      {
+        "key": "gap",
+        "type": "integer",
+        "label": "Gap",
+        "description": "Space between bars in logical pixels.",
+        "min": 0,
+        "max": 8,
+        "step": 1,
+        "defaultValue": 2
+      },
+      {
+        "key": "mode",
+        "type": "enum",
+        "label": "Mode",
+        "description": "Bottom grows up from the baseline, Mirror grows out from the centre line, Top hangs down from the ceiling.",
+        "options": ["Bottom", "Mirror", "Top"],
+        "defaultValue": "Bottom"
+      },
+      {
+        "key": "color",
+        "type": "enum",
+        "label": "Colour",
+        "description": "Which theme colour the bars take. Gradient fades quiet bands into loud ones.",
+        "options": ["Accent", "Foreground", "Muted", "Gradient"],
+        "defaultValue": "Accent"
+      },
+      {
+        "key": "peakHold",
+        "type": "boolean",
+        "label": "Peak hold",
+        "description": "Leave a falling cap at each band's most recent peak.",
+        "defaultValue": true
+      },
+      {
+        "key": "autoHide",
+        "type": "boolean",
+        "label": "Fold away when silent",
+        "description": "Collapse the widget to nothing after a couple of seconds of silence.",
+        "defaultValue": true
+      },
+      {
+        "key": "sensitivity",
+        "type": "integer",
+        "label": "Sensitivity (%)",
+        "description": "Scales the incoming levels. Above 100 makes quiet material reach higher.",
+        "min": 25,
+        "max": 400,
+        "step": 5,
+        "defaultValue": 100
+      },
+      {
+        "key": "framerate",
+        "type": "integer",
+        "label": "Capture framerate",
+        "description": "How often cava reports new levels. Rendering is frame-smoothed regardless.",
+        "min": 20,
+        "max": 144,
+        "step": 5,
+        "defaultValue": 60
+      }
+    ]
+  }
+}
