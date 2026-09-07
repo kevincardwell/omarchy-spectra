@@ -3,6 +3,8 @@
 Audio spectrum for the [Omarchy](https://omarchy.org/) bar — four styles, one
 shared capture, and it gets out of the way when the room is quiet.
 
+![Pulsebar](preview.png)
+
 ## Styles
 
 | Style | What it looks like |
