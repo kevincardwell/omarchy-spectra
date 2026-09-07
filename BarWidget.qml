@@ -12,9 +12,9 @@ import "Model.js" as Model
 // screen.
 BarWidget {
   id: root
-  moduleName: "jasper.pulsebar"
+  moduleName: "radius.spectra"
 
-  readonly property var service: bar && bar.shell ? bar.shell.serviceFor("jasper.pulsebar") : null
+  readonly property var service: bar && bar.shell ? bar.shell.serviceFor("radius.spectra") : null
 
   // shell.json is hand-edited often enough that a number written as a string
   // should still work rather than collapsing the widget to zero bars.
@@ -70,7 +70,7 @@ BarWidget {
 
   // Identifies this instance's request to the service. One bar surface exists
   // per monitor, so instances must not share a key.
-  readonly property string askKey: "pulsebar-" + Math.floor(Math.random() * 1e9)
+  readonly property string askKey: "spectra-" + Math.floor(Math.random() * 1e9)
 
   readonly property color accentColor: Color.accent
   readonly property color mutedColor: Color.muted
@@ -196,9 +196,9 @@ BarWidget {
   }
 
   // Bindable from a keyboard shortcut:
-  //   omarchy-shell jasper.pulsebar cycleStyle
+  //   omarchy-shell radius.spectra cycleStyle
   IpcHandler {
-    target: "jasper.pulsebar"
+    target: "radius.spectra"
 
     function cycleStyle(): void { root.cycleStyle(1) }
     function previousStyle(): void { root.cycleStyle(-1) }

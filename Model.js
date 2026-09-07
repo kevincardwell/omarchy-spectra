@@ -1,4 +1,4 @@
-// Pure logic for Pulsebar: cava wiring, frame parsing, and the maths the
+// Pure logic for Spectra: cava wiring, frame parsing, and the maths the
 // renderer does every frame. Kept out of the QML so it can be reasoned about
 // (and fixed) without a running shell.
 
@@ -179,8 +179,8 @@ function launcher(bars, framerate, noiseReduction) {
   ].join("\n")
 
   return [
-    'cfg="${XDG_RUNTIME_DIR:-/tmp}/jasper-pulsebar.conf"',
-    'command -v cava >/dev/null 2>&1 || { echo "pulsebar: cava is not installed" >&2; exit 127; }',
+    'cfg="${XDG_RUNTIME_DIR:-/tmp}/radius-spectra.conf"',
+    'command -v cava >/dev/null 2>&1 || { echo "spectra: cava is not installed" >&2; exit 127; }',
     'cat > "$cfg" <<\'PULSEBAR_CAVA\'',
     config + 'PULSEBAR_CAVA',
     'exec cava -p "$cfg"'

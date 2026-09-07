@@ -1,9 +1,9 @@
-# Pulsebar
+# Spectra
 
 Audio spectrum for the [Omarchy](https://omarchy.org/) bar — four styles, one
 shared capture, and it gets out of the way when the room is quiet.
 
-![Pulsebar](preview.png)
+![Spectra](preview.png)
 
 ## Styles
 
@@ -26,10 +26,10 @@ sweep anchored on your accent (`color`).
 - From a keybinding or a script:
 
 ```bash
-omarchy-shell jasper.pulsebar cycleStyle
-omarchy-shell jasper.pulsebar setStyle Wave
-omarchy-shell jasper.pulsebar cycleColor
-omarchy-shell jasper.pulsebar reload      # re-arm the capture
+omarchy-shell radius.spectra cycleStyle
+omarchy-shell radius.spectra setStyle Wave
+omarchy-shell radius.spectra cycleColor
+omarchy-shell radius.spectra reload      # re-arm the capture
 ```
 
 Every switch is written back to `~/.config/omarchy/shell.json`, so what you land
@@ -44,8 +44,8 @@ on is what you get after a restart.
 ## Install
 
 ```bash
-omarchy plugin add https://github.com/kevincardwell/omarchy-pulsebar --enable
-omarchy bar move jasper.pulsebar --section left --after omarchy.menu
+omarchy plugin add https://github.com/kevincardwell/omarchy-spectra --enable
+omarchy bar move radius.spectra --section left --after omarchy.menu
 ```
 
 ## Settings
@@ -54,7 +54,7 @@ All of it is editable from the widget's settings form, or inline in
 `shell.json`:
 
 ```json
-{ "id": "jasper.pulsebar", "style": "Bars", "bars": 28, "mode": "Mirror", "color": "Spectrum" }
+{ "id": "radius.spectra", "style": "Bars", "bars": 28, "mode": "Mirror", "color": "Spectrum" }
 ```
 
 | Key | Default | What it does |
@@ -104,8 +104,8 @@ and 144Hz, and a capture framerate of 30 still looks fluid.
 ## Remove
 
 ```bash
-omarchy plugin disable jasper.pulsebar
-omarchy plugin remove jasper.pulsebar --yes
+omarchy plugin disable radius.spectra
+omarchy plugin remove radius.spectra --yes
 ```
 
 ## License

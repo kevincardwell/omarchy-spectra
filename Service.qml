@@ -188,7 +188,7 @@ Item {
 
     stderr: SplitParser {
       splitMarker: "\n"
-      onRead: data => { if (String(data).trim() !== "") console.warn("pulsebar:", data) }
+      onRead: data => { if (String(data).trim() !== "") console.warn("spectra:", data) }
     }
 
     // cava exits if the audio server restarts or the sink disappears. Come back
@@ -200,7 +200,7 @@ Item {
       if (code === 0 || !root.shouldCapture) return
       root._failures += 1
       if (root._failures >= 3) {
-        console.warn("pulsebar: cava exited", code, "three times; giving up until reloaded")
+        console.warn("spectra: cava exited", code, "three times; giving up until reloaded")
         root.unavailable = true
         return
       }
