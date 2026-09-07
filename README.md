@@ -42,7 +42,7 @@ on is what you get after a restart.
 ## Install
 
 ```bash
-omarchy plugin add https://github.com/<you>/omarchy-pulsebar --enable
+omarchy plugin add https://github.com/kevincardwell/omarchy-pulsebar --enable
 omarchy bar move jasper.pulsebar --section left --after omarchy.menu
 ```
 
