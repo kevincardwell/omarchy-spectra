@@ -2,10 +2,10 @@
   "schemaVersion": 1,
   "id": "jasper.pulsebar",
   "name": "Pulsebar",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "author": "Jasper",
   "license": "MIT",
-  "description": "Audio spectrum for the Omarchy bar. One cava process for every monitor, frame-smoothed bars with peak-hold caps, and it folds away when the room goes quiet.",
+  "description": "Audio spectrum for the Omarchy bar. Bars, dots, wave or filled area; one shared cava capture across every monitor that suspends itself when nothing is playing.",
   "kinds": [
     "service",
     "bar-widget"
@@ -21,26 +21,72 @@
     "allowMultiple": false,
     "defaultSection": "left",
     "defaults": {
-      "bars": 24,
+      "style": "Bars",
+      "bars": 28,
       "barWidth": 3,
       "gap": 2,
       "mode": "Bottom",
       "color": "Accent",
+      "fill": 62,
+      "sensitivity": 100,
+      "punch": 140,
+      "smoothing": 35,
+      "attack": 80,
+      "release": 45,
       "peakHold": true,
       "autoHide": true,
-      "sensitivity": 100,
+      "idleSuspend": true,
       "framerate": 60
     },
     "schema": [
       {
+        "key": "style",
+        "type": "enum",
+        "label": "Style",
+        "description": "Bars are classic rectangles, Dots light a ladder of cells, Wave draws the spectrum as a line, Area fills underneath it.",
+        "options": [
+          "Bars",
+          "Dots",
+          "Wave",
+          "Area"
+        ],
+        "defaultValue": "Bars"
+      },
+      {
+        "key": "mode",
+        "type": "enum",
+        "label": "Direction",
+        "description": "Bottom grows up from the baseline, Mirror grows out from the centre line, Top hangs down from the ceiling.",
+        "options": [
+          "Bottom",
+          "Mirror",
+          "Top"
+        ],
+        "defaultValue": "Bottom"
+      },
+      {
+        "key": "color",
+        "type": "enum",
+        "label": "Colour",
+        "description": "Accent, Foreground and Muted are flat theme colours. Gradient fades quiet bands toward muted. Spectrum sweeps hue across the bands, anchored on your accent.",
+        "options": [
+          "Accent",
+          "Foreground",
+          "Muted",
+          "Gradient",
+          "Spectrum"
+        ],
+        "defaultValue": "Accent"
+      },
+      {
         "key": "bars",
         "type": "integer",
-        "label": "Bars",
+        "label": "Bands",
         "description": "How many frequency bands to draw.",
         "min": 4,
         "max": 64,
         "step": 1,
-        "defaultValue": 24
+        "defaultValue": 28
       },
       {
         "key": "barWidth",
@@ -63,20 +109,64 @@
         "defaultValue": 2
       },
       {
-        "key": "mode",
-        "type": "enum",
-        "label": "Mode",
-        "description": "Bottom grows up from the baseline, Mirror grows out from the centre line, Top hangs down from the ceiling.",
-        "options": ["Bottom", "Mirror", "Top"],
-        "defaultValue": "Bottom"
+        "key": "fill",
+        "type": "integer",
+        "label": "Height (%)",
+        "description": "How much of the bar's height the spectrum is allowed to use.",
+        "min": 20,
+        "max": 100,
+        "step": 2,
+        "defaultValue": 62
       },
       {
-        "key": "color",
-        "type": "enum",
-        "label": "Colour",
-        "description": "Which theme colour the bars take. Gradient fades quiet bands into loud ones.",
-        "options": ["Accent", "Foreground", "Muted", "Gradient"],
-        "defaultValue": "Accent"
+        "key": "sensitivity",
+        "type": "integer",
+        "label": "Sensitivity (%)",
+        "description": "Scales the incoming levels. Above 100 makes quiet material reach higher.",
+        "min": 25,
+        "max": 400,
+        "step": 5,
+        "defaultValue": 100
+      },
+      {
+        "key": "punch",
+        "type": "integer",
+        "label": "Punch (%)",
+        "description": "Bends the level curve. 100 is linear; higher values lift quiet passages off the baseline without clipping loud ones.",
+        "min": 100,
+        "max": 300,
+        "step": 10,
+        "defaultValue": 140
+      },
+      {
+        "key": "smoothing",
+        "type": "integer",
+        "label": "Band smoothing (%)",
+        "description": "Spreads each peak into its neighbours. 0 shows raw FFT bins, which look spiky; higher values read more like music.",
+        "min": 0,
+        "max": 100,
+        "step": 5,
+        "defaultValue": 35
+      },
+      {
+        "key": "attack",
+        "type": "integer",
+        "label": "Attack",
+        "description": "How fast a band rises to a transient.",
+        "min": 0,
+        "max": 100,
+        "step": 5,
+        "defaultValue": 80
+      },
+      {
+        "key": "release",
+        "type": "integer",
+        "label": "Release",
+        "description": "How slowly a band sinks back afterwards.",
+        "min": 0,
+        "max": 100,
+        "step": 5,
+        "defaultValue": 45
       },
       {
         "key": "peakHold",
@@ -93,14 +183,11 @@
         "defaultValue": true
       },
       {
-        "key": "sensitivity",
-        "type": "integer",
-        "label": "Sensitivity (%)",
-        "description": "Scales the incoming levels. Above 100 makes quiet material reach higher.",
-        "min": 25,
-        "max": 400,
-        "step": 5,
-        "defaultValue": 100
+        "key": "idleSuspend",
+        "type": "boolean",
+        "label": "Suspend capture when idle",
+        "description": "Stop the cava process entirely while nothing is routed to an output. Turn off if you want the capture pinned on.",
+        "defaultValue": true
       },
       {
         "key": "framerate",

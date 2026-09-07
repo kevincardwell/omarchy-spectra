@@ -8,6 +8,10 @@ var asciiRange = 1000
 // Below this, a frame is silence rather than a very quiet song.
 var silenceFloor = 0.012
 
+// How far the spatial smoother looks along the spectrum. Beyond four bands the
+// contribution is negligible at any usable strength, and the cost is O(n*w).
+var smoothingWindow = 4
+
 function zeros(n) {
   var out = []
   for (var i = 0; i < n; i++) out.push(0)
@@ -61,6 +65,40 @@ function parseFrame(line, bars, range) {
   return { levels: levels, peak: peak }
 }
 
+// Raw FFT bins are spiky: neighbouring bands of one instrument disagree wildly
+// frame to frame, which reads as noise rather than as music. Each band claims
+// the best of its neighbours attenuated by distance, so a peak spreads into a
+// shoulder instead of standing alone. Strength 0 leaves the bins untouched.
+function smoothSpatial(values, strength) {
+  if (strength <= 0) return values
+
+  var n = values.length
+  var out = values.slice()
+  // Strong smoothing decays slowly with distance, so a peak reaches further.
+  var falloff = 1 + (1 - clamp(strength, 0, 1)) * 8
+
+  for (var i = 0; i < n; i++) {
+    var best = out[i]
+    var first = Math.max(0, i - smoothingWindow)
+    var last = Math.min(n - 1, i + smoothingWindow)
+    for (var j = first; j <= last; j++) {
+      if (j === i) continue
+      var spread = values[j] / Math.pow(falloff, Math.abs(i - j))
+      if (spread > best) best = spread
+    }
+    out[i] = best
+  }
+  return out
+}
+
+// Loudness is logarithmic but cava hands us something close to linear, so a
+// track at conversational volume barely lifts off the baseline. An exponent
+// below 1 lifts the quiet end without clipping the loud end.
+function curve(value, exponent) {
+  if (exponent === 1) return value
+  return Math.pow(clamp(value, 0, 1), exponent)
+}
+
 // Bars should snap up to a transient and sink back slowly — matching the rise
 // and fall rates makes drums look like a sine wave. Rates are per second, and
 // dt keeps the motion identical on a 60Hz and a 144Hz screen.
@@ -85,6 +123,32 @@ function mix(a, b, t) {
                  a.g + (b.g - a.g) * k,
                  a.b + (b.b - a.b) * k,
                  a.a + (b.a - a.a) * k)
+}
+
+// Hue swept across the spectrum, anchored on the theme's accent so it still
+// belongs to the desktop rather than looking like a stock rainbow. Only three
+// quarters of the wheel is used: a full sweep wraps back to where it started
+// and the two ends of the bar become indistinguishable.
+function spectrumColor(t, anchor) {
+  var base = anchor && anchor.hsvHue >= 0 ? anchor.hsvHue : 0.55
+  var hue = (base + clamp(t, 0, 1) * 0.75) % 1
+  var saturation = anchor ? clamp(anchor.hsvSaturation + 0.25, 0.35, 0.85) : 0.6
+  return Qt.hsva(hue, saturation, 1, 1)
+}
+
+// Qt.alpha only landed recently and the shell targets whatever Qt the distro
+// ships, so the recolour is done by hand.
+function alpha(color, a) {
+  return Qt.rgba(color.r, color.g, color.b, clamp(a, 0, 1))
+}
+
+// PipeWire marks streams by direction inconsistently across clients, so both
+// the flag and the media class are consulted before calling a node playback.
+function isPlaybackStream(node) {
+  if (!node || !node.isStream) return false
+  if (node.isSink === true) return true
+  var mediaClass = String(node.type || "")
+  return mediaClass.indexOf("Output") !== -1
 }
 
 // The whole cava side of the plugin: write a config, hand it to cava, stream
