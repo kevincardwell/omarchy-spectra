@@ -15,7 +15,10 @@ Notable changes to Spectra. Versions follow [semver](https://semver.org): the
     peak.
   - **Glow** — no height at all: each band is a full-depth cell and the level
     reads as brightness, which stays legible on a bar too short for length to
-    say much.
+    say much. Brightness is its only channel, so it gets a floor and a curve of
+    its own: the floor keeps the strip readable as a row of cells when the room
+    is quiet instead of an empty slot, and the curve lifts the quiet bands,
+    which otherwise vanish and leave only the bass showing.
   - **Spikes** — bands tapering to a point, dropping to the baseline between
     each one.
   - **Steps** — the spectrum held flat across each band's width instead of
@@ -71,7 +74,11 @@ Notable changes to Spectra. Versions follow [semver](https://semver.org): the
   only the spectrum itself moving.
 - A hover tooltip naming the current style and colour, and listing the click and
   scroll actions — none of which the widget previously advertised. When the
-  capture is unavailable it shows why.
+  capture is unavailable it shows why. It is handed to the bar's own tooltip
+  window rather than declared as a popup in the widget: a Qt popup cannot leave
+  the bar surface, so it would be clipped to a single line, cover the widget it
+  describes, and take the pointer away from it — which stopped the scroll wheel
+  from changing style at all.
 - A test suite (`node --test test/`) over `Model.js` and the manifest, and a CI
   workflow that runs it. The resampling bug above is covered by it.
 

@@ -501,13 +501,20 @@ BarWidget {
           visible: root.style === "Glow"
           radius: Math.min(root.thickness, 5) / 2
           color: band.tint
-          opacity: 0.06 + 0.94 * band.level
+          // No Behavior here. The level already arrives time-smoothed by
+          // attack/release, and an animation restarting on every frame damps
+          // it into a near-constant value — the band stops reacting at all.
+          //
+          // Brightness is the only channel this style has, so it gets a floor
+          // and a curve of its own. The floor keeps the strip readable as a row
+          // of cells when the room is quiet, instead of an empty slot; the
+          // curve lifts the quiet bands, which otherwise disappear entirely
+          // and leave only the bass looking like a few static blocks.
+          opacity: 0.14 + 0.86 * Math.pow(band.level, 0.65)
           x: 0
           y: 0
           width: root.vertical ? canvas.width : band.width
           height: root.vertical ? band.height : canvas.height
-
-          Behavior on opacity { NumberAnimation { duration: root.reducedMotion ? 0 : 60 } }
         }
 
         // Beads: one disc per band riding where the top of the bar would be,
@@ -676,10 +683,27 @@ BarWidget {
     font.pixelSize: Style.font.body
   }
 
+  // The bar owns tooltip rendering, in a PopupWindow that can extend past the
+  // bar surface. A Qt Popup declared in here cannot: it is clipped to a strip
+  // barely one line tall, it covers the widget it describes, and the pointer
+  // then lands on the popup rather than the widget, so scrolling to change
+  // style stops working. `bar.showTooltip` avoids all three.
+  readonly property bool tooltipHovered: visible && opacity > 0 && mouse.containsMouse
+
+  readonly property string tooltipText: dead
+    ? (service && service.failure !== "" ? service.failure : "Audio capture unavailable")
+    : style + " · " + palette + "\nScroll: style · Right click: colour"
+
+  // Cycling while hovered should update what the tooltip says.
+  onTooltipTextChanged: if (tooltipHovered && bar) bar.showTooltip(root, tooltipText)
+
   MouseArea {
     id: mouse
     anchors.fill: parent
     hoverEnabled: true
+
+    onEntered: if (root.bar) root.bar.showTooltip(root, root.tooltipText)
+    onExited: if (root.bar) root.bar.hideTooltip(root)
     acceptedButtons: Qt.LeftButton | Qt.MiddleButton | Qt.RightButton
     cursorShape: Qt.PointingHandCursor
 
@@ -693,21 +717,10 @@ BarWidget {
     }
 
     // Scrolling over the widget walks the styles too, which is the fastest way
-    // to see all four next to each other.
+    // to see them next to each other.
     onWheel: function(wheel) {
       root.cycleStyle(wheel.angleDelta.y > 0 ? 1 : -1)
       wheel.accepted = true
-    }
-
-    // Nothing on the widget advertises that any of the above exists.
-    PanelToolTip {
-      visible: mouse.containsMouse
-      text: root.dead
-        ? (root.service && root.service.failure !== ""
-            ? root.service.failure
-            : "Audio capture unavailable")
-        : root.style + " · " + root.palette
-          + "\nScroll or middle click: style\nRight click: colour\nLeft click: audio panel"
     }
   }
 }
