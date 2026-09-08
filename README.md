@@ -23,6 +23,8 @@ sweep anchored on your accent (`color`).
 - **Scroll** over the widget to step through the styles.
 - **Middle click** for the next style, **right click** for the next colour.
 - **Left click** opens the audio panel.
+- **Hover** for a tooltip naming the current style and colour — and, if the
+  capture is broken, saying why.
 - From a keybinding or a script:
 
 ```bash
@@ -75,6 +77,10 @@ All of it is editable from the widget's settings form, or inline in
 | `autoHide` | `true` | Fold the widget away after ~2s of silence. |
 | `idleSuspend` | `true` | Stop the cava process entirely while nothing is routed to an output. |
 | `framerate` | `60` | Capture rate handed to cava. |
+| `source` | _(empty)_ | PulseAudio source to listen to. Empty follows the default output; `pactl list sources short` lists the names. |
+| `quietDelay` | `2000` | Milliseconds of silence before the widget folds away. |
+| `sleepDelay` | `6000` | Milliseconds the capture stays up after the last playback stream ends. |
+| `reducedMotion` | `false` | Drop the fold, the fade and the dot cross-fade; leave only the spectrum moving. |
 
 Colours come from Omarchy's `Color` singleton, so a theme change recolours
 everything live.
@@ -100,6 +106,30 @@ and 144Hz, and a capture framerate of 30 still looks fluid.
 
 **Vertical bars work.** Bands stack top to bottom and grow sideways, with
 `mode` picking the edge they grow from.
+
+**One capture, any band count.** The shared capture runs at the most generous
+band count any monitor asked for, and each widget folds it down to the number it
+draws — keeping the loudest band in each bin, so a transient survives the
+downmix. Two monitors can show 16 and 64 bands of the same audio.
+
+**It says when it is broken.** A missing `cava`, a refused audio server or a
+source that does not exist all look exactly like a quiet room. A watchdog gives
+a fresh capture a few seconds to produce a frame; if it does not, the widget
+shows a muted-speaker glyph and the tooltip explains it. It gives up after three
+attempts rather than forking a process in a loop — `reload` re-arms it.
+
+## Development
+
+`Model.js` holds everything that can be reasoned about without a running shell —
+frame parsing, band resampling, the merge of what each monitor asked for, and
+the cava config. It is covered by a test suite with no dependencies beyond node:
+
+```bash
+node --test
+```
+
+CI runs the same command, plus checks that the manifest, the widget and this
+README have not drifted apart.
 
 ## Remove
 

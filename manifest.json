@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "radius.spectra",
   "name": "Spectra",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "author": "Kevin Cardwell",
   "license": "MIT",
   "description": "Audio spectrum for the Omarchy bar. Bars, dots, wave or filled area; one shared cava capture across every monitor that suspends itself when nothing is playing.",
@@ -36,7 +36,11 @@
       "peakHold": true,
       "autoHide": true,
       "idleSuspend": true,
-      "framerate": 60
+      "framerate": 60,
+      "source": "",
+      "quietDelay": 2000,
+      "sleepDelay": 6000,
+      "reducedMotion": false
     },
     "schema": [
       {
@@ -198,6 +202,40 @@
         "max": 144,
         "step": 5,
         "defaultValue": 60
+      },
+      {
+        "key": "source",
+        "type": "string",
+        "label": "Audio source",
+        "description": "PulseAudio source cava listens to. Leave empty to follow the default output. `pactl list sources short` lists the names; a monitor source ends in `.monitor`.",
+        "defaultValue": ""
+      },
+      {
+        "key": "quietDelay",
+        "type": "integer",
+        "label": "Fold delay (ms)",
+        "description": "How long silence has to last before the widget folds away.",
+        "min": 200,
+        "max": 30000,
+        "step": 100,
+        "defaultValue": 2000
+      },
+      {
+        "key": "sleepDelay",
+        "type": "integer",
+        "label": "Suspend delay (ms)",
+        "description": "How long the capture stays up after the last playback stream disappears. Only matters with 'Suspend capture when idle' on.",
+        "min": 1000,
+        "max": 120000,
+        "step": 500,
+        "defaultValue": 6000
+      },
+      {
+        "key": "reducedMotion",
+        "type": "boolean",
+        "label": "Reduced motion",
+        "description": "Drop the incidental animation — the fold, the fade, the dot cross-fade — and leave only the spectrum itself moving.",
+        "defaultValue": false
       }
     ]
   }

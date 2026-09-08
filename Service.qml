@@ -19,11 +19,20 @@ Item {
 
   property var shell: null
 
-  // Capture parameters. Changing any of these rebuilds the cava config and
+  // Capture parameters. Changing any of these rewrites the cava config and
   // relaunches, debounced so dragging a slider does not fork a process a frame.
   property int bars: 24
   property int framerate: 60
   property int noiseReduction: 45
+
+  // Which PulseAudio/PipeWire device cava listens to. Empty means "auto",
+  // which is the default sink's monitor.
+  property string source: ""
+
+  // How long silence has to last before the widgets may fold away, and how
+  // long the capture stays up after the last playback stream disappears.
+  property int quietDelay: 2000
+  property int sleepDelay: 6000
 
   // Normalised 0..1, one entry per band, low frequencies first.
   property var levels: Model.zeros(24)
@@ -43,6 +52,10 @@ Item {
   // (it is not installed, or the audio server is refusing us). Widgets read
   // this to show that they are dead rather than merely quiet.
   property bool unavailable: false
+
+  // Why it is unavailable, for the widget's tooltip. A user staring at a
+  // muted-speaker glyph deserves better than "something went wrong".
+  property string failure: ""
 
   readonly property var nodes: Pipewire.nodes ? Pipewire.nodes.values : []
   readonly property var playbackStreams: {
@@ -64,13 +77,28 @@ Item {
   property int _failures: 0
 
   // Held low across a relaunch. Writing `proc.running` directly would break
-  // the binding that keeps the process following `shouldCapture`, so the
-  // restart path toggles this instead.
+  // the binding that keeps the process following `shouldCapture`, so every
+  // path that wants a fresh process toggles this instead — including the
+  // revive after a crash, which is why `onExited` drops it first. Setting an
+  // already-true property emits no change signal, and the binding would never
+  // re-evaluate.
   property bool _armed: true
 
   // The highest ask across live widgets. Reset when the last one goes away so
   // a removed widget's oversized request cannot outlive it.
   property var _asks: ({})
+
+  readonly property var _defaults: ({
+    bars: 24,
+    framerate: 60,
+    noiseReduction: 45,
+    quietDelay: 2000,
+    sleepDelay: 6000,
+    source: ""
+  })
+
+  readonly property string configPath:
+    (Quickshell.env("XDG_RUNTIME_DIR") || "/tmp") + "/radius-spectra.conf"
 
   function configure(key, wanted) {
     var next = ({})
@@ -88,16 +116,22 @@ Item {
   }
 
   function applyAsks() {
-    var merged = Model.mergeAsks(_asks, { bars: 24, framerate: 60, noiseReduction: 45 })
+    var merged = Model.mergeAsks(_asks, _defaults)
     var pin = false
     for (var k in _asks) if (_asks[k] && _asks[k].idleSuspend === false) pin = true
     idleSuspend = !pin
 
+    // These two only govern timers, so they can change without disturbing a
+    // running capture.
+    quietDelay = merged.quietDelay
+    sleepDelay = merged.sleepDelay
+
     if (merged.bars === bars && merged.framerate === framerate
-        && merged.noiseReduction === noiseReduction) return
+        && merged.noiseReduction === noiseReduction && merged.source === source) return
     bars = merged.bars
     framerate = merged.framerate
     noiseReduction = merged.noiseReduction
+    source = merged.source
     levels = Model.zeros(bars)
     relaunch.restart()
   }
@@ -107,16 +141,33 @@ Item {
   // and only a fresh process picks the new default up.
   function reload() {
     unavailable = false
+    failure = ""
     _failures = 0
     relaunch.restart()
+  }
+
+  // The config has to be on disk before cava is handed its path, so the write
+  // blocks. It is a couple of hundred bytes onto a tmpfs.
+  function writeConfig() {
+    config.setText(Model.cavaConfig(bars, framerate, noiseReduction, source))
+  }
+
+  // Write the config, start the watchdog, then let the process binding fire.
+  // The watchdog is armed here rather than in `onStarted` because a binary
+  // that fails to start never reports a start.
+  function arm() {
+    writeConfig()
+    watchdog.restart()
+    _armed = true
   }
 
   function ingest(line) {
     var parsed = Model.parseFrame(line, bars, Model.asciiRange)
     if (!parsed) return
     // A frame that parses is a frame from a healthy cava, so stop counting
-    // earlier crashes against it.
+    // earlier crashes against it and call off the startup watchdog.
     _failures = 0
+    watchdog.stop()
     levels = parsed.levels
     loudness = parsed.peak
     if (parsed.peak > Model.silenceFloor) {
@@ -129,6 +180,20 @@ Item {
     silent = true
     loudness = 0
     levels = Model.zeros(bars)
+  }
+
+  // A failed capture and a crashed one are the same problem from here: count
+  // it, and stop trying once it is clearly not transient.
+  function fail(reason) {
+    _failures += 1
+    if (_failures >= 3) {
+      console.warn("spectra:", reason, "— giving up until reloaded")
+      failure = reason
+      unavailable = true
+      return
+    }
+    _armed = false
+    revive.restart()
   }
 
   onPlayingChanged: {
@@ -144,15 +209,23 @@ Item {
   // tracker PipeWire hands back nodes whose properties are never populated.
   PwObjectTracker { objects: root.playbackStreams }
 
+  FileView {
+    id: config
+    path: root.configPath
+    blockWrites: true
+    atomicWrites: true
+    printErrors: true
+  }
+
   Timer {
     id: quiet
-    interval: 2000
+    interval: root.quietDelay
     onTriggered: root.goSilent()
   }
 
   Timer {
     id: sleepGrace
-    interval: 6000
+    interval: root.sleepDelay
     onTriggered: {
       root.awake = false
       root.goSilent()
@@ -173,13 +246,25 @@ Item {
   Timer {
     id: restart
     interval: 120
-    onTriggered: root._armed = true
+    onTriggered: root.arm()
+  }
+
+  // A cava that never produces a frame looks exactly like a quiet room. Give a
+  // fresh process a few seconds to say something before treating it as broken,
+  // which covers a missing binary, a refused audio server, and a capture
+  // pointed at a device that does not exist.
+  Timer {
+    id: watchdog
+    interval: Model.startupGrace
+    onTriggered: root.fail("cava started but produced no audio frames")
   }
 
   Process {
     id: proc
     running: root.shouldCapture && root._armed
-    command: ["bash", "-c", Model.launcher(root.bars, root.framerate, root.noiseReduction)]
+    command: ["cava", "-p", root.configPath]
+
+    onStarted: watchdog.restart()
 
     stdout: SplitParser {
       splitMarker: "\n"
@@ -196,23 +281,23 @@ Item {
     // give up after a few tries, because a missing binary fails identically
     // every time and a retry loop would just fork a process forever.
     onExited: function(code) {
+      watchdog.stop()
       root.goSilent()
-      if (code === 0 || !root.shouldCapture) return
-      root._failures += 1
-      if (root._failures >= 3) {
-        console.warn("spectra: cava exited", code, "three times; giving up until reloaded")
-        root.unavailable = true
-        return
-      }
-      revive.restart()
+      // `_armed` is low for every deliberate stop — a relaunch, a suspend, or
+      // the shell going away — and none of those are cava's fault.
+      if (code === 0 || !root.shouldCapture || !root._armed) return
+      root.fail(code === 127 || code < 0
+        ? "cava could not be started — is it installed? (omarchy pkg add cava)"
+        : "cava exited with code " + code)
     }
   }
 
   Timer {
     id: revive
     interval: 3000
-    onTriggered: root._armed = true
+    onTriggered: root.arm()
   }
 
+  Component.onCompleted: root.arm()
   Component.onDestruction: root._armed = false
 }

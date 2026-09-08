@@ -39,9 +39,13 @@ BarWidget {
   property string style: "Bars"
   property string mode: "Bottom"
   property string palette: "Accent"
+  property string source: ""
+  property int quietDelay: 2000
+  property int sleepDelay: 6000
   property bool peakHold: true
   property bool autoHide: true
   property bool idleSuspend: true
+  property bool reducedMotion: false
 
   function applySettings() {
     var count = Math.round(Model.clamp(number("bars", 24), 4, 64))
@@ -56,12 +60,18 @@ BarWidget {
     riseRate = 4 + Model.clamp(number("attack", 80), 0, 100) * 0.34
     fallRate = 2 + Model.clamp(number("release", 45), 0, 100) * 0.28
     fill = Model.clamp(number("fill", 62), 20, 100) / 100
-    style = String(setting("style", "Bars"))
-    mode = String(setting("mode", "Bottom"))
-    palette = String(setting("color", "Accent"))
+    quietDelay = Math.round(Model.clamp(number("quietDelay", 2000), 200, 30000))
+    sleepDelay = Math.round(Model.clamp(number("sleepDelay", 6000), 1000, 120000))
+    // Unknown spellings fall back instead of matching no render branch at all,
+    // which would leave an empty slot the user cannot explain.
+    style = Model.oneOf(setting("style", "Bars"), styleRing, "Bars")
+    mode = Model.oneOf(setting("mode", "Bottom"), modeRing, "Bottom")
+    palette = Model.oneOf(setting("color", "Accent"), paletteRing, "Accent")
+    source = String(setting("source", "")).trim()
     peakHold = setting("peakHold", true) === true
     autoHide = setting("autoHide", true) === true
     idleSuspend = setting("idleSuspend", true) === true
+    reducedMotion = setting("reducedMotion", false) === true
     if (count !== barCount) barCount = count
     ask()
   }
@@ -110,6 +120,10 @@ BarWidget {
   readonly property real content: barCount * thickness + Math.max(0, barCount - 1) * gap
   readonly property bool curved: style === "Wave" || style === "Area"
 
+  // Internal geometry scales with the theme's spacing, like every other
+  // measurement in the shell — a 2px cap is a hairline on a HiDPI bar.
+  readonly property real capThickness: Math.max(1, Style.space(2))
+
   // Which end of the depth axis the bars grow from. A vertical bar flips the
   // axis, so "Bottom" means "the far edge" on one and "the near edge" on the
   // other.
@@ -117,9 +131,24 @@ BarWidget {
 
   // Per-frame render state, kept as plain arrays so a whole frame is one
   // property assignment rather than barCount separate change notifications.
+  //
+  // Each is double-buffered: the frame is written into the spare buffer and
+  // the two are swapped, so a steady state allocates nothing. Assigning the
+  // same array object back would emit no change signal at all, which is why
+  // this cannot simply mutate in place.
   property var display: Model.zeros(barCount)
   property var peaks: Model.zeros(barCount)
   property var hangs: Model.zeros(barCount)
+  property var _spareDisplay: Model.zeros(barCount)
+  property var _sparePeaks: Model.zeros(barCount)
+  property var _spareHangs: Model.zeros(barCount)
+
+  // Scratch buffers for the signal chain, plus the one object `advancePeak`
+  // fills in. Never read outside `step`.
+  property var _raw: Model.zeros(barCount)
+  property var _targets: Model.zeros(barCount)
+  property var _smoothed: Model.zeros(barCount)
+  readonly property var _cap: ({ value: 0, hang: 0 })
 
   // Polyline geometry for the curved styles, rebuilt each frame.
   property var outline: []
@@ -132,7 +161,10 @@ BarWidget {
       bars: barCount,
       framerate: framerate,
       noiseReduction: 45,
-      idleSuspend: idleSuspend
+      idleSuspend: idleSuspend,
+      quietDelay: quietDelay,
+      sleepDelay: sleepDelay,
+      source: source
     })
   }
 
@@ -141,6 +173,12 @@ BarWidget {
     display = Model.zeros(barCount)
     peaks = Model.zeros(barCount)
     hangs = Model.zeros(barCount)
+    _spareDisplay = Model.zeros(barCount)
+    _sparePeaks = Model.zeros(barCount)
+    _spareHangs = Model.zeros(barCount)
+    _raw = Model.zeros(barCount)
+    _targets = Model.zeros(barCount)
+    _smoothed = Model.zeros(barCount)
     ask()
   }
   // The bar assigns `settings` as an initial property, which emits no change
@@ -157,20 +195,26 @@ BarWidget {
   // than reverting the next time the shell reloads.
   readonly property var styleRing: ["Bars", "Dots", "Wave", "Area"]
   readonly property var paletteRing: ["Accent", "Foreground", "Muted", "Gradient", "Spectrum"]
+  readonly property var modeRing: ["Bottom", "Mirror", "Top"]
 
+  // Switching is applied locally at once and written to disk on a delay: a
+  // single flick of the scroll wheel is a dozen wheel events, and each one
+  // would otherwise be its own rewrite of shell.json.
   function store(key, value) {
-    if (!bar || !bar.shell || typeof bar.shell.updateEntryInline !== "function") {
-      // No persistence available: still switch, just for this session.
-      var local = ({})
-      for (var k in settings) local[k] = settings[k]
-      local[key] = value
-      settings = local
-      return
-    }
     var next = ({})
     for (var s in settings) next[s] = settings[s]
     next[key] = value
-    bar.shell.updateEntryInline(moduleName, next)
+    settings = next
+    persist.restart()
+  }
+
+  Timer {
+    id: persist
+    interval: 300
+    onTriggered: {
+      if (bar && bar.shell && typeof bar.shell.updateEntryInline === "function")
+        bar.shell.updateEntryInline(root.moduleName, root.settings)
+    }
   }
 
   function stepRing(ring, current, delta) {
@@ -236,10 +280,10 @@ BarWidget {
     }
 
     // The curve has to reach the edges of the widget, otherwise it visibly
-    // stops half a band short of both ends.
+    // stops half a band short of both ends. Both ends repeat the depth of the
+    // band next to them, squared off against the widget's edge.
     if (top.length > 1) {
-      top.unshift(point(0, top[0].y !== undefined && !vertical ? top[0].y : (vertical ? top[0].x : top[0].y)))
-      top[0] = vertical ? Qt.point(top[1].x, 0) : Qt.point(0, top[1].y)
+      top.unshift(vertical ? Qt.point(top[0].x, 0) : Qt.point(0, top[0].y))
       top.push(vertical ? Qt.point(top[top.length - 1].x, content)
                         : Qt.point(content, top[top.length - 1].y))
     }
@@ -265,28 +309,37 @@ BarWidget {
   }
 
   function step(dt) {
-    var raw = service ? service.levels : []
+    // The capture is shared and runs at the most generous band count any
+    // monitor asked for, so fold it down to what this widget draws. Reading
+    // the first barCount entries would show only the bottom of the spectrum.
+    var raw = Model.resample(service ? service.levels : [], barCount, _raw)
 
     // Shape the signal before it is smoothed in time: sensitivity, then the
     // perceptual curve, then the spatial smoother that turns spiky FFT bins
     // into something that reads as music.
-    var targets = []
+    var targets = _targets
     for (var i = 0; i < barCount; i++) {
-      var value = Model.clamp((i < raw.length ? raw[i] : 0) * sensitivity, 0, 1)
-      targets.push(Model.curve(value, exponent))
+      targets[i] = Model.curve(Model.clamp(raw[i] * sensitivity, 0, 1), exponent)
     }
-    targets = Model.smoothSpatial(targets, smoothing)
+    var shaped = Model.smoothSpatial(targets, smoothing, _smoothed)
 
-    var nextDisplay = []
-    var nextPeaks = []
-    var nextHangs = []
+    // Write the frame into the spare buffers, then swap them in. Assigning a
+    // mutated array back to itself would emit no change signal, so the swap is
+    // what makes the render update — and it is why nothing here allocates.
+    var nextDisplay = _spareDisplay
+    var nextPeaks = _sparePeaks
+    var nextHangs = _spareHangs
     for (var j = 0; j < barCount; j++) {
-      var level = Model.advance(display[j] || 0, targets[j], dt, riseRate, fallRate)
-      var cap = Model.advancePeak(peaks[j] || 0, level, dt, hangs[j] || 0, 0.9)
-      nextDisplay.push(level)
-      nextPeaks.push(cap.value)
-      nextHangs.push(cap.hang)
+      var level = Model.advance(display[j] || 0, shaped[j], dt, riseRate, fallRate)
+      Model.advancePeak(peaks[j] || 0, level, dt, hangs[j] || 0, 0.9, _cap)
+      nextDisplay[j] = level
+      nextPeaks[j] = _cap.value
+      nextHangs[j] = _cap.hang
     }
+
+    _spareDisplay = display
+    _sparePeaks = peaks
+    _spareHangs = hangs
     display = nextDisplay
     peaks = nextPeaks
     hangs = nextHangs
@@ -307,8 +360,14 @@ BarWidget {
   implicitWidth: vertical ? span + Style.space(8) : (quiet ? 0 : content + Style.space(8))
   implicitHeight: vertical ? (quiet ? 0 : content + Style.space(8)) : barSize
 
-  Behavior on implicitWidth { NumberAnimation { duration: 220; easing.type: Easing.OutCubic } }
-  Behavior on implicitHeight { NumberAnimation { duration: 220; easing.type: Easing.OutCubic } }
+  // The fold is incidental motion rather than the visualisation itself, so it
+  // is the part `reducedMotion` turns off.
+  Behavior on implicitWidth {
+    NumberAnimation { duration: root.reducedMotion ? 0 : 220; easing.type: Easing.OutCubic }
+  }
+  Behavior on implicitHeight {
+    NumberAnimation { duration: root.reducedMotion ? 0 : 220; easing.type: Easing.OutCubic }
+  }
 
   clip: true
 
@@ -319,7 +378,7 @@ BarWidget {
     height: root.vertical ? root.content : root.span
     opacity: root.quiet ? 0 : 1
 
-    Behavior on opacity { NumberAnimation { duration: 200 } }
+    Behavior on opacity { NumberAnimation { duration: root.reducedMotion ? 0 : 200 } }
 
     // ---- Bars and Dots -----------------------------------------------------
 
@@ -395,7 +454,7 @@ BarWidget {
             width: root.vertical ? matrix.cell : band.width
             height: root.vertical ? band.height : matrix.cell
 
-            Behavior on opacity { NumberAnimation { duration: 90 } }
+            Behavior on opacity { NumberAnimation { duration: root.reducedMotion ? 0 : 90 } }
           }
         }
 
@@ -405,7 +464,7 @@ BarWidget {
 
           Rectangle {
             readonly property real depth: root.depthAt(band.peak, index === 1 ? 1 : -1)
-            readonly property real thick: 2
+            readonly property real thick: root.capThickness
 
             color: band.tint
             opacity: 0.9
@@ -424,9 +483,10 @@ BarWidget {
       id: matrix
       // Cells are deliberately shorter than the bars are wide: a bar height
       // only ever offers a dozen or so pixels, and a ladder needs enough rungs
-      // that a level reads as a quantity rather than as on/off.
-      readonly property real cell: 2
-      readonly property real gap: 1
+      // that a level reads as a quantity rather than as on/off. Both scale
+      // with the theme so the ladder survives a HiDPI bar.
+      readonly property real cell: Math.max(1, Style.space(2))
+      readonly property real gap: Math.max(1, Style.space(1))
       readonly property real pitch: cell + gap
       readonly property int rows: Math.max(3, Math.floor((root.span + gap) / pitch))
     }
@@ -458,7 +518,7 @@ BarWidget {
       }
 
       ShapePath {
-        strokeWidth: 2
+        strokeWidth: root.capThickness
         strokeColor: root.palette === "Spectrum" ? root.accentColor : root.stopColor(1.0)
         fillColor: "transparent"
         capStyle: ShapePath.RoundCap
@@ -468,7 +528,7 @@ BarWidget {
       }
 
       ShapePath {
-        strokeWidth: root.mode === "Mirror" ? 2 : 0
+        strokeWidth: root.mode === "Mirror" ? root.capThickness : 0
         strokeColor: root.palette === "Spectrum" ? root.accentColor : root.stopColor(1.0)
         fillColor: "transparent"
         capStyle: ShapePath.RoundCap
@@ -491,7 +551,9 @@ BarWidget {
   }
 
   MouseArea {
+    id: mouse
     anchors.fill: parent
+    hoverEnabled: true
     acceptedButtons: Qt.LeftButton | Qt.MiddleButton | Qt.RightButton
     cursorShape: Qt.PointingHandCursor
 
@@ -510,6 +572,16 @@ BarWidget {
       root.cycleStyle(wheel.angleDelta.y > 0 ? 1 : -1)
       wheel.accepted = true
     }
+
+    // Nothing on the widget advertises that any of the above exists.
+    PanelToolTip {
+      visible: mouse.containsMouse
+      text: root.dead
+        ? (root.service && root.service.failure !== ""
+            ? root.service.failure
+            : "Audio capture unavailable")
+        : root.style + " · " + root.palette
+          + "\nScroll or middle click: style\nRight click: colour\nLeft click: audio panel"
+    }
   }
 }
-

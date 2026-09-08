@@ -1,0 +1,25 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    name: Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+
+      # Two suites, no dependencies. model.test.mjs covers everything that can
+      # be checked without a compositor — frame parsing, band resampling, the
+      # ask merge, the cava config. manifest.test.mjs keeps the manifest, the
+      # widget, and the README from drifting apart.
+      - name: Run tests
+        run: node --test
