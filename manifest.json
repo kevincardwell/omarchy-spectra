@@ -3,7 +3,7 @@
   "id": "radius.spectra",
   "name": "Spectra",
   "version": "1.2.0",
-  "author": "Radius Media",
+  "author": "Kevin Cardwell",
   "license": "MIT",
   "description": "Audio spectrum for the Omarchy bar. Bars, dots, wave or filled area; one shared cava capture across every monitor that suspends itself when nothing is playing.",
   "kinds": [
