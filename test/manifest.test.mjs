@@ -84,7 +84,8 @@ test("numeric settings default inside their own range", () => {
 test("the widget's style and colour rings match the manifest options", () => {
   const widget = read("BarWidget.qml");
   const ringOf = (name) => {
-    const match = widget.match(new RegExp(`property var ${name}: \\[(.*?)\\]`));
+    // The rings are long enough to wrap, so match across newlines.
+    const match = widget.match(new RegExp(`property var ${name}: \\[([\\s\\S]*?)\\]`));
     assert.ok(match, `${name} not found in the widget`);
     return match[1].split(",").map((s) => s.trim().replace(/"/g, ""));
   };

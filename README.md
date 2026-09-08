@@ -1,6 +1,6 @@
 # Spectra
 
-Audio spectrum for the [Omarchy](https://omarchy.org/) bar — four styles, one
+Audio spectrum for the [Omarchy](https://omarchy.org/) bar — ten styles, one
 shared capture, and it gets out of the way when the room is quiet.
 
 ![Spectra](preview.png)
@@ -11,8 +11,17 @@ shared capture, and it gets out of the way when the room is quiet.
 |-------|--------------------|
 | **Bars** | Classic rectangles with falling peak-hold caps. |
 | **Dots** | An LED ladder: each band lights cells from the baseline, with the peak cell held bright. |
+| **Beads** | One disc per band, riding where the top of the bar would be — a contour of dots. |
+| **Trail** | The bar, chased by a translucent ghost falling from its last peak. |
+| **Glow** | No height: each band is a full-depth cell and the level reads as brightness. |
+| **Spikes** | Bands tapering to a point, dropping to the baseline between each one. |
+| **Steps** | The spectrum held flat across each band's width instead of curved through its centre. |
+| **Ridge** | Those steps with the body filled in. |
 | **Wave** | The spectrum as a single stroked line over a faint body. |
 | **Area** | The same curve with the body filled in. |
+
+Scrolling walks them in that order, from the most discrete reading of the
+spectrum to the most continuous.
 
 Each style can grow up from the baseline, down from the ceiling, or out from a
 centre line (`mode`), in a flat theme colour, a level-driven gradient, or a hue
@@ -29,7 +38,7 @@ sweep anchored on your accent (`color`).
 
 ```bash
 omarchy-shell radius.spectra cycleStyle
-omarchy-shell radius.spectra setStyle Wave
+omarchy-shell radius.spectra setStyle Spikes
 omarchy-shell radius.spectra cycleColor
 omarchy-shell radius.spectra reload      # re-arm the capture
 ```
@@ -61,7 +70,7 @@ All of it is editable from the widget's settings form, or inline in
 
 | Key | Default | What it does |
 |-----|---------|--------------|
-| `style` | `Bars` | `Bars`, `Dots`, `Wave`, `Area`. |
+| `style` | `Bars` | `Bars`, `Dots`, `Beads`, `Trail`, `Glow`, `Spikes`, `Steps`, `Ridge`, `Wave`, `Area`. |
 | `mode` | `Bottom` | `Bottom`, `Mirror`, `Top`. |
 | `color` | `Accent` | `Accent`, `Foreground`, `Muted`, `Gradient`, `Spectrum`. |
 | `bars` | `28` | Frequency bands, 4–64. |

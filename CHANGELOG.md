@@ -3,6 +3,37 @@
 Notable changes to Spectra. Versions follow [semver](https://semver.org): the
 `version` field in `manifest.json` is what the marketplace orders updates by.
 
+## 1.4.0
+
+### Added
+
+- **Six more styles, for ten in total.** The existing four are unchanged; the
+  new ones are:
+  - **Beads** — a disc per band riding where the top of the bar would be, so the
+    spectrum reads as a contour rather than a solid mass.
+  - **Trail** — the bar chased by a translucent ghost falling from its last
+    peak.
+  - **Glow** — no height at all: each band is a full-depth cell and the level
+    reads as brightness, which stays legible on a bar too short for length to
+    say much.
+  - **Spikes** — bands tapering to a point, dropping to the baseline between
+    each one.
+  - **Steps** — the spectrum held flat across each band's width instead of
+    curved through its centre.
+  - **Ridge** — those steps with the body filled in.
+
+  All six honour `mode` and every palette, and the scroll wheel walks the ring
+  in order from the most discrete reading of the spectrum to the most
+  continuous.
+
+### Changed
+
+- The shaped styles (Spikes, Steps, Ridge, Wave, Area) share one polyline
+  builder and one `Shape`, so adding them costs no extra items per band.
+- Peak caps are drawn for the styles that do not already show their peak —
+  Dots lights its own cap cell, Trail is the peak, and Glow has nowhere to put
+  one. Beads caps its contour with a smaller bead rather than a bar.
+
 ## 1.3.0
 
 ### Fixed

@@ -2,10 +2,10 @@
   "schemaVersion": 1,
   "id": "radius.spectra",
   "name": "Spectra",
-  "version": "1.3.0",
+  "version": "1.4.0",
   "author": "Kevin Cardwell",
   "license": "MIT",
-  "description": "Audio spectrum for the Omarchy bar. Bars, dots, wave or filled area; one shared cava capture across every monitor that suspends itself when nothing is playing.",
+  "description": "Audio spectrum for the Omarchy bar. Ten styles from bars and beads to spikes, steps and filled curves; one shared cava capture across every monitor that suspends itself when nothing is playing.",
   "kinds": [
     "service",
     "bar-widget"
@@ -47,10 +47,16 @@
         "key": "style",
         "type": "enum",
         "label": "Style",
-        "description": "Bars are classic rectangles, Dots light a ladder of cells, Wave draws the spectrum as a line, Area fills underneath it.",
+        "description": "Bars are classic rectangles, Dots light a ladder of cells, Beads ride a disc where the bar would end, Trail chases the bar with its falling peak, Glow drops height for brightness, Spikes taper to a point, Steps holds each band flat, Ridge fills those steps, Wave draws the spectrum as a line, Area fills underneath it.",
         "options": [
           "Bars",
           "Dots",
+          "Beads",
+          "Trail",
+          "Glow",
+          "Spikes",
+          "Steps",
+          "Ridge",
           "Wave",
           "Area"
         ],

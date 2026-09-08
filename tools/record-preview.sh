@@ -2,9 +2,9 @@
 #
 # Record preview.gif from the live widget.
 #
-# The four styles are the whole point of the plugin and all four of them move,
-# so a still image undersells it. This walks the styles through the widget's own
-# IPC while capturing the bar region, then assembles a GIF.
+# The ten styles are the whole point of the plugin and all of them move, so a
+# still image undersells it. This walks every style through the widget's own IPC
+# while capturing the bar region, then assembles a GIF.
 #
 # Play something first — the widget folds itself away when the room is quiet.
 #
@@ -17,7 +17,7 @@
 set -euo pipefail
 
 fps=${FPS:-15}
-per_style=${SECONDS_PER_STYLE:-2}
+per_style=${SECONDS_PER_STYLE:-1.5}
 out=${OUT:-preview.gif}
 geometry=""
 
@@ -56,7 +56,13 @@ trap cleanup EXIT
 frame=0
 delay=$(awk -v f="$fps" 'BEGIN { printf "%.3f", 1 / f }')
 
-for style in Bars Dots Wave Area; do
+# Counted in frames rather than against the clock: `date` arithmetic on a
+# fractional duration is awkward, and awk's default number format mangles a
+# unix timestamp into scientific notation.
+per_style_frames=$(awk -v f="$fps" -v n="$per_style" 'BEGIN { printf "%d", (f * n) + 0.5 }')
+[ "$per_style_frames" -gt 0 ] || per_style_frames=1
+
+for style in Bars Dots Beads Trail Glow Spikes Steps Ridge Wave Area; do
   echo "Recording $style..." >&2
   omarchy-shell radius.spectra setStyle "$style" >/dev/null 2>&1 || {
     echo "could not reach the widget over IPC — is the shell running?" >&2
@@ -65,10 +71,11 @@ for style in Bars Dots Wave Area; do
   # Let the switch land and the bars settle into the new style before capturing.
   sleep 0.4
 
-  end=$(awk -v n="$per_style" 'BEGIN { print systime() + n }')
-  while [ "$(date +%s)" -lt "$end" ]; do
+  captured=0
+  while [ "$captured" -lt "$per_style_frames" ]; do
     grim -g "$geometry" "$(printf '%s/%05d.png' "$frames" "$frame")"
     frame=$((frame + 1))
+    captured=$((captured + 1))
     sleep "$delay"
   done
 done

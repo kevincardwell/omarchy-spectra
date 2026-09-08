@@ -98,10 +98,10 @@ BarWidget {
     return baseColor
   }
 
-  // Fill colour at position `t` for the curved styles, already faded back so
+  // Fill colour at position `t` for the shaped styles, already faded back so
   // the body sits under the outline rather than competing with it.
   function fillStop(t) {
-    return Model.alpha(stopColor(t), style === "Area" ? 0.38 : 0.13)
+    return Model.alpha(stopColor(t), fillStrength)
   }
 
   // Per-band colour, which unlike stopColor may respond to how loud the band
@@ -118,7 +118,16 @@ BarWidget {
   readonly property real span: Math.max(2, Math.round(barSize * fill))
   readonly property real pitch: thickness + gap
   readonly property real content: barCount * thickness + Math.max(0, barCount - 1) * gap
-  readonly property bool curved: style === "Wave" || style === "Area"
+  // Two render families. `banded` styles draw one item per band through the
+  // Repeater; `shaped` styles are a single Shape whose polyline is rebuilt each
+  // frame, which is far cheaper than 64 items once the geometry gets fiddly.
+  readonly property bool shaped: shapedStyles.indexOf(style) >= 0
+  readonly property bool stepped: style === "Steps" || style === "Ridge"
+  readonly property bool spiked: style === "Spikes"
+
+  // How solid the body under the outline is. The paired styles differ only in
+  // this: Wave/Steps hint at a body, Area/Ridge/Spikes commit to one.
+  readonly property real fillStrength: solidStyles.indexOf(style) >= 0 ? 0.38 : 0.13
 
   // Internal geometry scales with the theme's spacing, like every other
   // measurement in the shell — a 2px cap is a hairline on a HiDPI bar.
@@ -150,7 +159,7 @@ BarWidget {
   property var _smoothed: Model.zeros(barCount)
   readonly property var _cap: ({ value: 0, hang: 0 })
 
-  // Polyline geometry for the curved styles, rebuilt each frame.
+  // Polyline geometry for the shaped styles, rebuilt each frame.
   property var outline: []
   property var mirrorOutline: []
   property var area: []
@@ -193,7 +202,13 @@ BarWidget {
   // without opening a settings form: middle click steps through the four, and
   // the choice is written back to shell.json so it survives a restart rather
   // than reverting the next time the shell reloads.
-  readonly property var styleRing: ["Bars", "Dots", "Wave", "Area"]
+  // Ordered so that stepping through them travels from the most discrete
+  // reading of the spectrum to the most continuous, rather than jumping about.
+  readonly property var styleRing: ["Bars", "Dots", "Beads", "Trail", "Glow",
+                                    "Spikes", "Steps", "Ridge", "Wave", "Area"]
+  readonly property var shapedStyles: ["Spikes", "Steps", "Ridge", "Wave", "Area"]
+  readonly property var solidStyles: ["Area", "Ridge", "Spikes"]
+  readonly property var capStyles: ["Bars", "Beads"]
   readonly property var paletteRing: ["Accent", "Foreground", "Muted", "Gradient", "Spectrum"]
   readonly property var modeRing: ["Bottom", "Mirror", "Top"]
 
@@ -270,33 +285,73 @@ BarWidget {
     return vertical ? Qt.point(depth, along) : Qt.point(along, depth)
   }
 
-  function rebuildCurve() {
+  // Left and right edge of band `index` along the widget.
+  function bandStart(index) { return index * pitch }
+  function bandEnd(index) { return index * pitch + thickness }
+
+  // Geometry for the shaped styles. Three shapes come out of the same loop:
+  //
+  //   smooth  — one point per band centre, so the outline reads as a curve
+  //   stepped — two points per band, held flat across its width
+  //   spiked  — three points per band, down to the baseline between each one
+  //
+  // Mirror mode builds the second outline at the same time; the filled region
+  // then closes along it instead of along the origin.
+  function rebuildShape() {
     var top = []
     var bottom = []
+    var mirror = mode === "Mirror"
+    var floorDepth = depthAt(0, -1)
+    var mirrorFloor = depthAt(0, 1)
+
     for (var i = 0; i < barCount; i++) {
-      var along = alongAt(i)
-      top.push(point(along, depthAt(display[i], -1)))
-      if (mode === "Mirror") bottom.push(point(along, depthAt(display[i], 1)))
+      var level = display[i]
+      var centre = alongAt(i)
+      var left = bandStart(i)
+      var right = bandEnd(i)
+
+      if (spiked) {
+        top.push(point(left, floorDepth))
+        top.push(point(centre, depthAt(level, -1)))
+        top.push(point(right, floorDepth))
+        if (mirror) {
+          bottom.push(point(left, mirrorFloor))
+          bottom.push(point(centre, depthAt(level, 1)))
+          bottom.push(point(right, mirrorFloor))
+        }
+      } else if (stepped) {
+        top.push(point(left, depthAt(level, -1)))
+        top.push(point(right, depthAt(level, -1)))
+        if (mirror) {
+          bottom.push(point(left, depthAt(level, 1)))
+          bottom.push(point(right, depthAt(level, 1)))
+        }
+      } else {
+        top.push(point(centre, depthAt(level, -1)))
+        if (mirror) bottom.push(point(centre, depthAt(level, 1)))
+      }
     }
 
-    // The curve has to reach the edges of the widget, otherwise it visibly
-    // stops half a band short of both ends. Both ends repeat the depth of the
-    // band next to them, squared off against the widget's edge.
-    if (top.length > 1) {
-      top.unshift(vertical ? Qt.point(top[0].x, 0) : Qt.point(0, top[0].y))
-      top.push(vertical ? Qt.point(top[top.length - 1].x, content)
-                        : Qt.point(content, top[top.length - 1].y))
-    }
-    if (bottom.length > 1) {
-      bottom.unshift(vertical ? Qt.point(bottom[0].x, 0) : Qt.point(0, bottom[0].y))
-      bottom.push(vertical ? Qt.point(bottom[bottom.length - 1].x, content)
-                           : Qt.point(content, bottom[bottom.length - 1].y))
+    // A smooth curve stops half a band short of each end, so it is extended
+    // squarely to the edges. The stepped and spiked shapes already start at
+    // band 0's left edge and finish at the last band's right edge.
+    if (!stepped && !spiked) {
+      if (top.length > 1) {
+        top.unshift(vertical ? Qt.point(top[0].x, 0) : Qt.point(0, top[0].y))
+        top.push(vertical ? Qt.point(top[top.length - 1].x, content)
+                          : Qt.point(content, top[top.length - 1].y))
+      }
+      if (bottom.length > 1) {
+        bottom.unshift(vertical ? Qt.point(bottom[0].x, 0) : Qt.point(0, bottom[0].y))
+        bottom.push(vertical ? Qt.point(bottom[bottom.length - 1].x, content)
+                             : Qt.point(content, bottom[bottom.length - 1].y))
+      }
     }
 
     outline = top
     mirrorOutline = bottom
 
-    // Close the filled region: back along the mirrored curve when there is
+    // Close the filled region: back along the mirrored outline when there is
     // one, otherwise straight along the originDepth.
     var closed = top.slice()
     if (bottom.length > 0) {
@@ -321,7 +376,7 @@ BarWidget {
     for (var i = 0; i < barCount; i++) {
       targets[i] = Model.curve(Model.clamp(raw[i] * sensitivity, 0, 1), exponent)
     }
-    var shaped = Model.smoothSpatial(targets, smoothing, _smoothed)
+    var smoothed = Model.smoothSpatial(targets, smoothing, _smoothed)
 
     // Write the frame into the spare buffers, then swap them in. Assigning a
     // mutated array back to itself would emit no change signal, so the swap is
@@ -330,7 +385,7 @@ BarWidget {
     var nextPeaks = _sparePeaks
     var nextHangs = _spareHangs
     for (var j = 0; j < barCount; j++) {
-      var level = Model.advance(display[j] || 0, shaped[j], dt, riseRate, fallRate)
+      var level = Model.advance(display[j] || 0, smoothed[j], dt, riseRate, fallRate)
       Model.advancePeak(peaks[j] || 0, level, dt, hangs[j] || 0, 0.9, _cap)
       nextDisplay[j] = level
       nextPeaks[j] = _cap.value
@@ -344,7 +399,7 @@ BarWidget {
     peaks = nextPeaks
     hangs = nextHangs
 
-    if (curved) rebuildCurve()
+    if (shaped) rebuildShape()
   }
 
   // Nothing to animate while the widget is folded away and the bars have
@@ -383,7 +438,7 @@ BarWidget {
     // ---- Bars and Dots -----------------------------------------------------
 
     Repeater {
-      model: root.curved ? 0 : root.barCount
+      model: root.shaped ? 0 : root.barCount
 
       Item {
         id: band
@@ -397,15 +452,39 @@ BarWidget {
         readonly property real far: Math.max(root.depthAt(level, -1),
                                              root.mode === "Mirror" ? root.depthAt(level, 1) : root.originDepth)
 
+        // The same two coordinates for the falling peak, which Trail draws as
+        // a ghost of the bar it is chasing.
+        readonly property real peakNear: Math.min(root.depthAt(peak, -1),
+                                                  root.mode === "Mirror" ? root.depthAt(peak, 1) : root.originDepth)
+        readonly property real peakFar: Math.max(root.depthAt(peak, -1),
+                                                 root.mode === "Mirror" ? root.depthAt(peak, 1) : root.originDepth)
+
         x: root.vertical ? 0 : index * root.pitch
         y: root.vertical ? index * root.pitch : 0
         width: root.vertical ? canvas.width : root.thickness
         height: root.vertical ? root.thickness : canvas.height
 
+        // The band's extent across the growth axis — its width on a horizontal
+        // bar, its height on a vertical one.
+        readonly property real crossSize: root.vertical ? height : width
+
         // A band is always at least a hairline: an empty bar should read as a
         // quiet channel, not as a broken widget.
+        // Trail: the bar, chased by a translucent ghost still falling from the
+        // band's last peak. Drawn first so the solid bar sits on top of it.
         Rectangle {
-          visible: root.style === "Bars"
+          visible: root.style === "Trail"
+          radius: Math.min(root.thickness, 5) / 2
+          color: band.tint
+          opacity: 0.22
+          x: root.vertical ? band.peakNear : 0
+          y: root.vertical ? 0 : band.peakNear
+          width: root.vertical ? Math.max(1, band.peakFar - band.peakNear) : band.width
+          height: root.vertical ? band.height : Math.max(1, band.peakFar - band.peakNear)
+        }
+
+        Rectangle {
+          visible: root.style === "Bars" || root.style === "Trail"
           radius: Math.min(root.thickness, 5) / 2
           color: band.tint
           opacity: 0.35 + 0.65 * band.level
@@ -413,6 +492,43 @@ BarWidget {
           y: root.vertical ? 0 : band.near
           width: root.vertical ? Math.max(1, band.far - band.near) : band.width
           height: root.vertical ? band.height : Math.max(1, band.far - band.near)
+        }
+
+        // Glow: no height at all. The band is a full-depth cell and the level
+        // reads as brightness, which stays legible on a bar too short to show
+        // a useful difference in length.
+        Rectangle {
+          visible: root.style === "Glow"
+          radius: Math.min(root.thickness, 5) / 2
+          color: band.tint
+          opacity: 0.06 + 0.94 * band.level
+          x: 0
+          y: 0
+          width: root.vertical ? canvas.width : band.width
+          height: root.vertical ? band.height : canvas.height
+
+          Behavior on opacity { NumberAnimation { duration: root.reducedMotion ? 0 : 60 } }
+        }
+
+        // Beads: one disc per band riding where the top of the bar would be,
+        // so the spectrum reads as a contour of dots rather than a solid mass.
+        Repeater {
+          model: root.style === "Beads" ? (root.mode === "Mirror" ? 2 : 1) : 0
+
+          Rectangle {
+            readonly property real size: Math.max(2, root.thickness)
+            readonly property real depth: root.depthAt(band.level, index === 1 ? 1 : -1)
+
+            color: band.tint
+            opacity: 0.45 + 0.55 * band.level
+            radius: size / 2
+            width: size
+            height: size
+            x: root.vertical ? Math.max(0, Math.min(canvas.width - size, depth - size / 2))
+                             : (band.width - size) / 2
+            y: root.vertical ? (band.height - size) / 2
+                             : Math.max(0, Math.min(canvas.height - size, depth - size / 2))
+          }
         }
 
         // Dots: a fixed ladder of cells lit from the origin outwards, so the
@@ -460,19 +576,29 @@ BarWidget {
 
         // Peak caps: one on the growing edge, two when the band grows both ways.
         Repeater {
-          model: root.peakHold && root.style !== "Dots" ? (root.mode === "Mirror" ? 2 : 1) : 0
+          // Dots lights its own cap cell, Trail *is* the peak, and Glow has no
+          // position to put one at.
+          model: root.peakHold && capStyles.indexOf(root.style) >= 0
+            ? (root.mode === "Mirror" ? 2 : 1) : 0
 
           Rectangle {
             readonly property real depth: root.depthAt(band.peak, index === 1 ? 1 : -1)
-            readonly property real thick: root.capThickness
+            // Beads caps its contour with a smaller bead rather than a bar,
+            // which would read as a different style entirely.
+            readonly property bool bead: root.style === "Beads"
+            readonly property real thick: bead ? Math.max(2, root.thickness * 0.6)
+                                               : root.capThickness
+            readonly property real across: bead ? thick : band.crossSize
 
             color: band.tint
             opacity: 0.9
-            radius: 1
-            x: root.vertical ? depth - (root.fromFarEnd && root.mode !== "Mirror" ? 0 : thick) : 0
-            y: root.vertical ? 0 : depth - (root.fromFarEnd && root.mode !== "Mirror" ? 0 : thick)
-            width: root.vertical ? thick : band.width
-            height: root.vertical ? band.height : thick
+            radius: bead ? thick / 2 : 1
+            x: root.vertical ? depth - (root.fromFarEnd && root.mode !== "Mirror" ? 0 : thick)
+                             : (band.width - across) / 2
+            y: root.vertical ? (band.height - across) / 2
+                             : depth - (root.fromFarEnd && root.mode !== "Mirror" ? 0 : thick)
+            width: root.vertical ? thick : across
+            height: root.vertical ? across : thick
           }
         }
       }
@@ -495,7 +621,7 @@ BarWidget {
 
     Shape {
       anchors.fill: parent
-      visible: root.curved
+      visible: root.shaped
       asynchronous: false
 
       // The filled body. Drawn under the stroke so the outline stays crisp.
