@@ -7,6 +7,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
+import { Model } from "./model.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const read = (name) => readFileSync(join(root, name), "utf8");
@@ -56,11 +57,18 @@ test("every default is exposed in the settings form", () => {
   }
 });
 
-test("every setting is actually read by the widget", () => {
-  const widget = read("BarWidget.qml");
+// Settings are read in one place, Model.resolve, which the widget calls.
+test("every setting is actually read", () => {
+  const model = read("Model.js");
   for (const key of Object.keys(manifest.barWidget.defaults)) {
-    assert.match(widget, new RegExp(`"${key}"`), `${key} is declared but never read`);
+    assert.match(model, new RegExp(`"${key}"`), `${key} is declared but never read`);
   }
+});
+
+// The form shows the manifest's defaults, but an entry written by hand may
+// leave any key out; both must land on the same look.
+test("an empty entry resolves exactly like the manifest defaults", () => {
+  assert.deepEqual(Model.resolve({}), Model.resolve(manifest.barWidget.defaults));
 });
 
 test("enum settings default to one of their own options", () => {
@@ -79,28 +87,35 @@ test("numeric settings default inside their own range", () => {
   }
 });
 
-// The rings in the widget are what the scroll wheel and the IPC handlers walk.
-// A style present in one and missing from the other is a dead menu entry.
-test("the widget's style and colour rings match the manifest options", () => {
-  const widget = read("BarWidget.qml");
-  const ringOf = (name) => {
-    // The rings are long enough to wrap, so match across newlines.
-    const match = widget.match(new RegExp(`property var ${name}: \\[([\\s\\S]*?)\\]`));
-    assert.ok(match, `${name} not found in the widget`);
-    return match[1].split(",").map((s) => s.trim().replace(/"/g, ""));
-  };
+// The rings in Model.js are what the scroll wheel, the IPC handlers and the
+// validation walk. A value present in one and missing from the form is a dead
+// menu entry.
+test("the style, mode, colour, peak and feel lists match the manifest options", () => {
   const optionsOf = (key) =>
     manifest.barWidget.schema.find((item) => item.key === key).options;
 
-  assert.deepEqual(ringOf("styleRing"), optionsOf("style"));
-  assert.deepEqual(ringOf("paletteRing"), optionsOf("color"));
-  assert.deepEqual(ringOf("modeRing"), optionsOf("mode"));
+  assert.deepEqual(Model.styles, optionsOf("style"));
+  assert.deepEqual(Model.modes, optionsOf("mode"));
+  assert.deepEqual(Model.palettes, optionsOf("color"));
+  assert.deepEqual(Model.peakModes, optionsOf("peak"));
+  assert.deepEqual(Model.feelNames, optionsOf("feel"));
 });
+
+// Including the ones that are only reachable from shell.json.
+const advanced = ["sensitivity", "punch", "smoothing", "attack", "release",
+                  "framerate", "idleSuspend", "quietDelay", "sleepDelay"];
 
 test("the README documents every setting", () => {
   const readme = read("README.md");
-  for (const key of Object.keys(manifest.barWidget.defaults)) {
+  for (const key of [...Object.keys(manifest.barWidget.defaults), ...advanced]) {
     assert.match(readme, new RegExp(`\`${key}\``), `${key} is undocumented`);
+  }
+});
+
+test("every advanced setting is still read", () => {
+  const model = read("Model.js");
+  for (const key of advanced) {
+    assert.match(model, new RegExp(`"${key}"`), `${key} is documented but never read`);
   }
 });
 

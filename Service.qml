@@ -1,6 +1,7 @@
 import QtQuick
 import Quickshell
 import Quickshell.Io
+import Quickshell.Services.Mpris
 import Quickshell.Services.Pipewire
 import "Model.js" as Model
 
@@ -8,8 +9,8 @@ import "Model.js" as Model
 //
 // A bar widget is instantiated once per monitor, so the capture cannot live in
 // the widget without spawning a second, third, fourth cava alongside it. The
-// service owns the process, the widgets read `levels` off it, and every screen
-// draws the same numbers.
+// service owns the process, the widgets read `leftLevels` and `rightLevels`
+// off it, and every screen draws the same numbers.
 //
 // Widgets do not own the settings either: they hand their wishes to
 // `configure()` and the loudest wish wins, so two differently configured
@@ -22,7 +23,7 @@ Item {
   // Capture parameters. Changing any of these rewrites the cava config and
   // relaunches, debounced so dragging a slider does not fork a process a frame.
   property int bars: 24
-  property int framerate: 60
+  property int framerate: 30
   property int noiseReduction: 45
 
   // Which PulseAudio/PipeWire device cava listens to. Empty means "auto",
@@ -34,8 +35,10 @@ Item {
   property int quietDelay: 2000
   property int sleepDelay: 6000
 
-  // Normalised 0..1, one entry per band, low frequencies first.
-  property var levels: Model.zeros(24)
+  // Normalised 0..1, one entry per band, low frequencies first — one array per
+  // channel. `bars` counts bands per channel.
+  property var leftLevels: Model.zeros(24)
+  property var rightLevels: Model.zeros(24)
 
   // Loudest band in the most recent frame, and whether we have seen only
   // silence for long enough that the widgets may fold themselves away.
@@ -67,6 +70,20 @@ Item {
   }
   readonly property bool playing: playbackStreams.length > 0
 
+  // The cover of whatever is playing, for the Cover palette. A player that is
+  // actually playing wins over a paused one left open in another window.
+  readonly property var players: Mpris.players ? Mpris.players.values : []
+  readonly property string coverUrl: {
+    var fallback = ""
+    for (var i = 0; i < players.length; i++) {
+      var art = players[i].trackArtUrl || ""
+      if (art === "") continue
+      if (players[i].isPlaying) return art
+      if (fallback === "") fallback = art
+    }
+    return fallback
+  }
+
   // `awake` trails `playing` by a grace period: track changes and seeks tear
   // the stream down and build it back up, and bouncing cava on every gap would
   // cost more than leaving it running.
@@ -90,7 +107,7 @@ Item {
 
   readonly property var _defaults: ({
     bars: 24,
-    framerate: 60,
+    framerate: 30,
     noiseReduction: 45,
     quietDelay: 2000,
     sleepDelay: 6000,
@@ -132,7 +149,8 @@ Item {
     framerate = merged.framerate
     noiseReduction = merged.noiseReduction
     source = merged.source
-    levels = Model.zeros(bars)
+    leftLevels = Model.zeros(bars)
+    rightLevels = Model.zeros(bars)
     relaunch.restart()
   }
 
@@ -168,7 +186,8 @@ Item {
     // earlier crashes against it and call off the startup watchdog.
     _failures = 0
     watchdog.stop()
-    levels = parsed.levels
+    leftLevels = parsed.left
+    rightLevels = parsed.right
     loudness = parsed.peak
     if (parsed.peak > Model.silenceFloor) {
       silent = false
@@ -179,7 +198,8 @@ Item {
   function goSilent() {
     silent = true
     loudness = 0
-    levels = Model.zeros(bars)
+    leftLevels = Model.zeros(bars)
+    rightLevels = Model.zeros(bars)
   }
 
   // A failed capture and a crashed one are the same problem from here: count

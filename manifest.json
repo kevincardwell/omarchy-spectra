@@ -2,10 +2,10 @@
   "schemaVersion": 1,
   "id": "radius.spectra",
   "name": "Spectra",
-  "version": "1.4.0",
+  "version": "2.0.0",
   "author": "Kevin Cardwell",
   "license": "MIT",
-  "description": "Audio spectrum for the Omarchy bar. Ten styles from bars and beads to spikes, steps and filled curves; one shared cava capture across every monitor that suspends itself when nothing is playing.",
+  "description": "Audio spectrum for the Omarchy bar. Seven styles from bars and beads to spikes, steps and curves, in stereo, coloured by your theme or the album art; one shared cava capture, and one shader that draws only the frames that change.",
   "kinds": [
     "service",
     "bar-widget"
@@ -22,24 +22,17 @@
     "defaultSection": "left",
     "defaults": {
       "style": "Bars",
+      "filled": false,
+      "mode": "Bottom",
+      "color": "Accent",
+      "peak": "Cap",
+      "feel": "Balanced",
       "bars": 28,
       "barWidth": 3,
       "gap": 2,
-      "mode": "Bottom",
-      "color": "Accent",
       "fill": 62,
-      "sensitivity": 100,
-      "punch": 140,
-      "smoothing": 35,
-      "attack": 80,
-      "release": 45,
-      "peakHold": true,
       "autoHide": true,
-      "idleSuspend": true,
-      "framerate": 60,
-      "source": "",
-      "quietDelay": 2000,
-      "sleepDelay": 6000,
+      "device": "",
       "reducedMotion": false
     },
     "schema": [
@@ -47,30 +40,35 @@
         "key": "style",
         "type": "enum",
         "label": "Style",
-        "description": "Bars are classic rectangles, Dots light a ladder of cells, Beads ride a disc where the bar would end, Trail chases the bar with its falling peak, Glow drops height for brightness, Spikes taper to a point, Steps holds each band flat, Ridge fills those steps, Wave draws the spectrum as a line, Area fills underneath it.",
+        "description": "Bars are classic rectangles, Dots light a ladder of cells, Beads ride a disc where the bar would end, Glow drops height for brightness, Spikes taper to a point, Steps holds each band flat, Wave draws the spectrum as a smooth curve.",
         "options": [
           "Bars",
           "Dots",
           "Beads",
-          "Trail",
           "Glow",
           "Spikes",
           "Steps",
-          "Ridge",
-          "Wave",
-          "Area"
+          "Wave"
         ],
         "defaultValue": "Bars"
+      },
+      {
+        "key": "filled",
+        "type": "boolean",
+        "label": "Filled",
+        "description": "Fill the body under Spikes, Steps and Wave instead of only hinting at it.",
+        "defaultValue": false
       },
       {
         "key": "mode",
         "type": "enum",
         "label": "Direction",
-        "description": "Bottom grows up from the baseline, Mirror grows out from the centre line, Top hangs down from the ceiling.",
+        "description": "Bottom grows up from the baseline and Top hangs from the ceiling. Mirror grows out from the centre line, left channel up and right channel down. Butterfly lays the channels side by side with the bass in the middle.",
         "options": [
           "Bottom",
           "Mirror",
-          "Top"
+          "Top",
+          "Butterfly"
         ],
         "defaultValue": "Bottom"
       },
@@ -78,15 +76,40 @@
         "key": "color",
         "type": "enum",
         "label": "Colour",
-        "description": "Accent, Foreground and Muted are flat theme colours. Gradient fades quiet bands toward muted. Spectrum sweeps hue across the bands, anchored on your accent.",
+        "description": "Accent, Foreground and Muted are flat theme colours. Gradient fades quiet bands toward muted. Spectrum sweeps hue across the bands, anchored on your accent. Cover takes its colours from the album art of whatever is playing.",
         "options": [
           "Accent",
           "Foreground",
           "Muted",
           "Gradient",
-          "Spectrum"
+          "Spectrum",
+          "Cover"
         ],
         "defaultValue": "Accent"
+      },
+      {
+        "key": "peak",
+        "type": "enum",
+        "label": "Peaks",
+        "description": "Cap leaves a falling cap at each band's recent peak. Trail draws Bars chased by a translucent ghost of that peak. Off shows the level alone.",
+        "options": [
+          "Cap",
+          "Trail",
+          "Off"
+        ],
+        "defaultValue": "Cap"
+      },
+      {
+        "key": "feel",
+        "type": "enum",
+        "label": "Feel",
+        "description": "How the spectrum moves. Smooth glides and spreads each peak wide; Punchy snaps to transients and drops fast; Balanced sits between.",
+        "options": [
+          "Smooth",
+          "Balanced",
+          "Punchy"
+        ],
+        "defaultValue": "Balanced"
       },
       {
         "key": "bars",
@@ -129,63 +152,6 @@
         "defaultValue": 62
       },
       {
-        "key": "sensitivity",
-        "type": "integer",
-        "label": "Sensitivity (%)",
-        "description": "Scales the incoming levels. Above 100 makes quiet material reach higher.",
-        "min": 25,
-        "max": 400,
-        "step": 5,
-        "defaultValue": 100
-      },
-      {
-        "key": "punch",
-        "type": "integer",
-        "label": "Punch (%)",
-        "description": "Bends the level curve. 100 is linear; higher values lift quiet passages off the baseline without clipping loud ones.",
-        "min": 100,
-        "max": 300,
-        "step": 10,
-        "defaultValue": 140
-      },
-      {
-        "key": "smoothing",
-        "type": "integer",
-        "label": "Band smoothing (%)",
-        "description": "Spreads each peak into its neighbours. 0 shows raw FFT bins, which look spiky; higher values read more like music.",
-        "min": 0,
-        "max": 100,
-        "step": 5,
-        "defaultValue": 35
-      },
-      {
-        "key": "attack",
-        "type": "integer",
-        "label": "Attack",
-        "description": "How fast a band rises to a transient.",
-        "min": 0,
-        "max": 100,
-        "step": 5,
-        "defaultValue": 80
-      },
-      {
-        "key": "release",
-        "type": "integer",
-        "label": "Release",
-        "description": "How slowly a band sinks back afterwards.",
-        "min": 0,
-        "max": 100,
-        "step": 5,
-        "defaultValue": 45
-      },
-      {
-        "key": "peakHold",
-        "type": "boolean",
-        "label": "Peak hold",
-        "description": "Leave a falling cap at each band's most recent peak.",
-        "defaultValue": true
-      },
-      {
         "key": "autoHide",
         "type": "boolean",
         "label": "Fold away when silent",
@@ -193,54 +159,17 @@
         "defaultValue": true
       },
       {
-        "key": "idleSuspend",
-        "type": "boolean",
-        "label": "Suspend capture when idle",
-        "description": "Stop the cava process entirely while nothing is routed to an output. Turn off if you want the capture pinned on.",
-        "defaultValue": true
-      },
-      {
-        "key": "framerate",
-        "type": "integer",
-        "label": "Capture framerate",
-        "description": "How often cava reports new levels. Rendering is frame-smoothed regardless.",
-        "min": 20,
-        "max": 144,
-        "step": 5,
-        "defaultValue": 60
-      },
-      {
-        "key": "source",
+        "key": "device",
         "type": "string",
-        "label": "Audio source",
+        "label": "Audio device",
         "description": "PulseAudio source cava listens to. Leave empty to follow the default output. `pactl list sources short` lists the names; a monitor source ends in `.monitor`.",
         "defaultValue": ""
-      },
-      {
-        "key": "quietDelay",
-        "type": "integer",
-        "label": "Fold delay (ms)",
-        "description": "How long silence has to last before the widget folds away.",
-        "min": 200,
-        "max": 30000,
-        "step": 100,
-        "defaultValue": 2000
-      },
-      {
-        "key": "sleepDelay",
-        "type": "integer",
-        "label": "Suspend delay (ms)",
-        "description": "How long the capture stays up after the last playback stream disappears. Only matters with 'Suspend capture when idle' on.",
-        "min": 1000,
-        "max": 120000,
-        "step": 500,
-        "defaultValue": 6000
       },
       {
         "key": "reducedMotion",
         "type": "boolean",
         "label": "Reduced motion",
-        "description": "Drop the incidental animation — the fold, the fade, the dot cross-fade — and leave only the spectrum itself moving.",
+        "description": "Drop the incidental animation — the fold and the fade — and leave only the spectrum itself moving.",
         "defaultValue": false
       }
     ]

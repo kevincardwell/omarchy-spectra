@@ -1,77 +1,47 @@
 import QtQuick
-import QtQuick.Shapes
 import Quickshell
 import Quickshell.Io
 import qs.Commons
 import qs.Ui
 import "Model.js" as Model
 
-// The visible spectrum. Levels arrive from the shared service at cava's
-// framerate; everything here runs per rendered frame instead, so the bars keep
-// moving smoothly between captures and look the same on a 60Hz and a 144Hz
-// screen.
+// Spectra on the bar: settings, the fold when the room is quiet, and the
+// scroll and click shortcuts. The spectrum itself — motion and drawing — is
+// Spectrum.qml.
 BarWidget {
   id: root
   moduleName: "radius.spectra"
 
   readonly property var service: bar && bar.shell ? bar.shell.serviceFor("radius.spectra") : null
 
-  // shell.json is hand-edited often enough that a number written as a string
-  // should still work rather than collapsing the widget to zero bars.
-  function number(name, fallback) {
-    var value = Number(setting(name, fallback))
-    return isNaN(value) ? fallback : value
-  }
-
   // Settings are snapshotted rather than bound. The bar re-hands `settings`
   // to the slot while it is laying widgets out, so an implicitWidth that reads
   // it directly closes a binding loop with the slot that sizes us.
-  property int barCount: 24
+  property var look: Model.resolve({})
+  property int barCount: 28
   property real thickness: 3
   property real gap: 2
-  property int framerate: 60
-  property real sensitivity: 1
-  property real exponent: 0.7
-  property real smoothing: 0.35
-  property real riseRate: 26
-  property real fallRate: 9
   property real fill: 0.62
   property string style: "Bars"
+  property bool filled: false
   property string mode: "Bottom"
   property string palette: "Accent"
-  property string source: ""
-  property int quietDelay: 2000
-  property int sleepDelay: 6000
-  property bool peakHold: true
   property bool autoHide: true
-  property bool idleSuspend: true
   property bool reducedMotion: false
 
   function applySettings() {
-    var count = Math.round(Model.clamp(number("bars", 24), 4, 64))
-    thickness = Model.clamp(number("barWidth", 3), 1, 12)
-    gap = Model.clamp(number("gap", 2), 0, 8)
-    framerate = Math.round(Model.clamp(number("framerate", 60), 20, 144))
-    sensitivity = Model.clamp(number("sensitivity", 100), 25, 400) / 100
-    // A "punch" of 100 is linear; higher values bend the curve so quiet
-    // passages still lift off the originDepth.
-    exponent = 1 / Model.clamp(number("punch", 140), 100, 300) * 100
-    smoothing = Model.clamp(number("smoothing", 35), 0, 100) / 100
-    riseRate = 4 + Model.clamp(number("attack", 80), 0, 100) * 0.34
-    fallRate = 2 + Model.clamp(number("release", 45), 0, 100) * 0.28
-    fill = Model.clamp(number("fill", 62), 20, 100) / 100
-    quietDelay = Math.round(Model.clamp(number("quietDelay", 2000), 200, 30000))
-    sleepDelay = Math.round(Model.clamp(number("sleepDelay", 6000), 1000, 120000))
-    // Unknown spellings fall back instead of matching no render branch at all,
-    // which would leave an empty slot the user cannot explain.
-    style = Model.oneOf(setting("style", "Bars"), styleRing, "Bars")
-    mode = Model.oneOf(setting("mode", "Bottom"), modeRing, "Bottom")
-    palette = Model.oneOf(setting("color", "Accent"), paletteRing, "Accent")
-    source = String(setting("source", "")).trim()
-    peakHold = setting("peakHold", true) === true
-    autoHide = setting("autoHide", true) === true
-    idleSuspend = setting("idleSuspend", true) === true
-    reducedMotion = setting("reducedMotion", false) === true
+    var next = Model.resolve(settings)
+    thickness = next.barWidth
+    gap = next.gap
+    fill = next.fill
+    style = next.style
+    filled = next.filled
+    mode = next.mode
+    palette = next.palette
+    autoHide = next.autoHide
+    reducedMotion = next.reducedMotion
+    look = next
+    var count = Model.drawnBands(next.bars, next.mode)
     if (count !== barCount) barCount = count
     ask()
   }
@@ -82,135 +52,40 @@ BarWidget {
   // per monitor, so instances must not share a key.
   readonly property string askKey: "spectra-" + Math.floor(Math.random() * 1e9)
 
-  readonly property color accentColor: Color.accent
-  readonly property color mutedColor: Color.muted
-  readonly property color baseColor: {
-    if (palette === "Foreground") return bar ? bar.barForeground : Color.bar.text
-    if (palette === "Muted") return mutedColor
-    return accentColor
-  }
-
-  // Colour at normalised position `t` along the spectrum. Flat palettes ignore
-  // the position; only Spectrum actually sweeps.
-  function stopColor(t) {
-    if (palette === "Spectrum") return Model.spectrumColor(t, accentColor)
-    if (palette === "Gradient") return Model.mix(mutedColor, accentColor, t)
-    return baseColor
-  }
-
-  // Fill colour at position `t` for the shaped styles, already faded back so
-  // the body sits under the outline rather than competing with it.
-  function fillStop(t) {
-    return Model.alpha(stopColor(t), fillStrength)
-  }
-
-  // Per-band colour, which unlike stopColor may respond to how loud the band
-  // currently is — that is the whole point of the Gradient palette.
-  function bandColor(index, level) {
-    if (palette === "Spectrum")
-      return Model.spectrumColor(barCount > 1 ? index / (barCount - 1) : 0, accentColor)
-    if (palette === "Gradient") return Model.mix(mutedColor, accentColor, level)
-    return baseColor
-  }
-
-  readonly property bool dead: service ? service.unavailable === true : false
-  readonly property bool quiet: !dead && autoHide && (!service || service.silent)
-  readonly property real span: Math.max(2, Math.round(barSize * fill))
-  readonly property real pitch: thickness + gap
-  readonly property real content: barCount * thickness + Math.max(0, barCount - 1) * gap
-  // Two render families. `banded` styles draw one item per band through the
-  // Repeater; `shaped` styles are a single Shape whose polyline is rebuilt each
-  // frame, which is far cheaper than 64 items once the geometry gets fiddly.
-  readonly property bool shaped: shapedStyles.indexOf(style) >= 0
-  readonly property bool stepped: style === "Steps" || style === "Ridge"
-  readonly property bool spiked: style === "Spikes"
-
-  // How solid the body under the outline is. The paired styles differ only in
-  // this: Wave/Steps hint at a body, Area/Ridge/Spikes commit to one.
-  readonly property real fillStrength: solidStyles.indexOf(style) >= 0 ? 0.38 : 0.13
-
-  // Internal geometry scales with the theme's spacing, like every other
-  // measurement in the shell — a 2px cap is a hairline on a HiDPI bar.
-  readonly property real capThickness: Math.max(1, Style.space(2))
-
-  // Which end of the depth axis the bars grow from. A vertical bar flips the
-  // axis, so "Bottom" means "the far edge" on one and "the near edge" on the
-  // other.
-  readonly property bool fromFarEnd: (mode === "Bottom") !== vertical
-
-  // Per-frame render state, kept as plain arrays so a whole frame is one
-  // property assignment rather than barCount separate change notifications.
-  //
-  // Each is double-buffered: the frame is written into the spare buffer and
-  // the two are swapped, so a steady state allocates nothing. Assigning the
-  // same array object back would emit no change signal at all, which is why
-  // this cannot simply mutate in place.
-  property var display: Model.zeros(barCount)
-  property var peaks: Model.zeros(barCount)
-  property var hangs: Model.zeros(barCount)
-  property var _spareDisplay: Model.zeros(barCount)
-  property var _sparePeaks: Model.zeros(barCount)
-  property var _spareHangs: Model.zeros(barCount)
-
-  // Scratch buffers for the signal chain, plus the one object `advancePeak`
-  // fills in. Never read outside `step`.
-  property var _raw: Model.zeros(barCount)
-  property var _targets: Model.zeros(barCount)
-  property var _smoothed: Model.zeros(barCount)
-  readonly property var _cap: ({ value: 0, hang: 0 })
-
-  // Polyline geometry for the shaped styles, rebuilt each frame.
-  property var outline: []
-  property var mirrorOutline: []
-  property var area: []
-
   function ask() {
     if (!service) return
     service.configure(askKey, {
-      bars: barCount,
-      framerate: framerate,
+      bars: Model.capturedBands(look.bars, look.mode),
+      framerate: look.framerate,
       noiseReduction: 45,
-      idleSuspend: idleSuspend,
-      quietDelay: quietDelay,
-      sleepDelay: sleepDelay,
-      source: source
+      idleSuspend: look.idleSuspend,
+      quietDelay: look.quietDelay,
+      sleepDelay: look.sleepDelay,
+      source: look.device
     })
   }
 
   onServiceChanged: ask()
-  onBarCountChanged: {
-    display = Model.zeros(barCount)
-    peaks = Model.zeros(barCount)
-    hangs = Model.zeros(barCount)
-    _spareDisplay = Model.zeros(barCount)
-    _sparePeaks = Model.zeros(barCount)
-    _spareHangs = Model.zeros(barCount)
-    _raw = Model.zeros(barCount)
-    _targets = Model.zeros(barCount)
-    _smoothed = Model.zeros(barCount)
-    ask()
-  }
+  onBarCountChanged: ask()
   // The bar assigns `settings` as an initial property, which emits no change
   // signal, so a straight onCompleted call would snapshot the defaults and
   // never see the user's entry. Deferring picks it up after injection.
   Component.onCompleted: Qt.callLater(applySettings)
   Component.onDestruction: if (service) service.release(askKey)
 
+  readonly property bool dead: service ? service.unavailable === true : false
+  readonly property bool quiet: !dead && autoHide && (!service || service.silent)
+  readonly property real span: Math.max(2, Math.round(barSize * fill))
+  readonly property real content: barCount * thickness + Math.max(0, barCount - 1) * gap
+
   // ---- Switching styles --------------------------------------------------
   //
   // Style is the setting people actually want to play with, so it is reachable
-  // without opening a settings form: middle click steps through the four, and
-  // the choice is written back to shell.json so it survives a restart rather
-  // than reverting the next time the shell reloads.
-  // Ordered so that stepping through them travels from the most discrete
-  // reading of the spectrum to the most continuous, rather than jumping about.
-  readonly property var styleRing: ["Bars", "Dots", "Beads", "Trail", "Glow",
-                                    "Spikes", "Steps", "Ridge", "Wave", "Area"]
-  readonly property var shapedStyles: ["Spikes", "Steps", "Ridge", "Wave", "Area"]
-  readonly property var solidStyles: ["Area", "Ridge", "Spikes"]
-  readonly property var capStyles: ["Bars", "Beads"]
-  readonly property var paletteRing: ["Accent", "Foreground", "Muted", "Gradient", "Spectrum"]
-  readonly property var modeRing: ["Bottom", "Mirror", "Top"]
+  // without opening a settings form: scroll or middle click steps through
+  // them, and the choice is written back to shell.json so it survives a
+  // restart rather than reverting the next time the shell reloads.
+  readonly property var styleRing: Model.styles
+  readonly property var paletteRing: Model.palettes
 
   // Switching is applied locally at once and written to disk on a delay: a
   // single flick of the scroll wheel is a dozen wheel events, and each one
@@ -247,11 +122,13 @@ BarWidget {
   }
 
   function setStyle(name) {
-    if (styleRing.indexOf(name) >= 0) store("style", name)
+    var match = Model.oneOf(name, styleRing, "")
+    if (match !== "") store("style", match)
   }
 
   function setPalette(name) {
-    if (paletteRing.indexOf(name) >= 0) store("color", name)
+    var match = Model.oneOf(name, paletteRing, "")
+    if (match !== "") store("color", match)
   }
 
   // Bindable from a keyboard shortcut:
@@ -265,148 +142,6 @@ BarWidget {
     function cycleColor(): void { root.cyclePalette(1) }
     function setColor(name: string): void { root.setPalette(name) }
     function reload(): void { if (root.service) root.service.reload() }
-  }
-
-  // Centre of band `i` measured across the widget.
-  function alongAt(index) {
-    return index * pitch + thickness / 2
-  }
-
-  // Depth coordinate for a normalised level, in pixels along the growth axis.
-  // `side` only matters in Mirror mode, where the band grows both ways.
-  function depthAt(level, side) {
-    if (mode === "Mirror") return span / 2 + side * level * span / 2
-    return fromFarEnd ? span - level * span : level * span
-  }
-
-  readonly property real originDepth: mode === "Mirror" ? span / 2 : (fromFarEnd ? span : 0)
-
-  function point(along, depth) {
-    return vertical ? Qt.point(depth, along) : Qt.point(along, depth)
-  }
-
-  // Left and right edge of band `index` along the widget.
-  function bandStart(index) { return index * pitch }
-  function bandEnd(index) { return index * pitch + thickness }
-
-  // Geometry for the shaped styles. Three shapes come out of the same loop:
-  //
-  //   smooth  — one point per band centre, so the outline reads as a curve
-  //   stepped — two points per band, held flat across its width
-  //   spiked  — three points per band, down to the baseline between each one
-  //
-  // Mirror mode builds the second outline at the same time; the filled region
-  // then closes along it instead of along the origin.
-  function rebuildShape() {
-    var top = []
-    var bottom = []
-    var mirror = mode === "Mirror"
-    var floorDepth = depthAt(0, -1)
-    var mirrorFloor = depthAt(0, 1)
-
-    for (var i = 0; i < barCount; i++) {
-      var level = display[i]
-      var centre = alongAt(i)
-      var left = bandStart(i)
-      var right = bandEnd(i)
-
-      if (spiked) {
-        top.push(point(left, floorDepth))
-        top.push(point(centre, depthAt(level, -1)))
-        top.push(point(right, floorDepth))
-        if (mirror) {
-          bottom.push(point(left, mirrorFloor))
-          bottom.push(point(centre, depthAt(level, 1)))
-          bottom.push(point(right, mirrorFloor))
-        }
-      } else if (stepped) {
-        top.push(point(left, depthAt(level, -1)))
-        top.push(point(right, depthAt(level, -1)))
-        if (mirror) {
-          bottom.push(point(left, depthAt(level, 1)))
-          bottom.push(point(right, depthAt(level, 1)))
-        }
-      } else {
-        top.push(point(centre, depthAt(level, -1)))
-        if (mirror) bottom.push(point(centre, depthAt(level, 1)))
-      }
-    }
-
-    // A smooth curve stops half a band short of each end, so it is extended
-    // squarely to the edges. The stepped and spiked shapes already start at
-    // band 0's left edge and finish at the last band's right edge.
-    if (!stepped && !spiked) {
-      if (top.length > 1) {
-        top.unshift(vertical ? Qt.point(top[0].x, 0) : Qt.point(0, top[0].y))
-        top.push(vertical ? Qt.point(top[top.length - 1].x, content)
-                          : Qt.point(content, top[top.length - 1].y))
-      }
-      if (bottom.length > 1) {
-        bottom.unshift(vertical ? Qt.point(bottom[0].x, 0) : Qt.point(0, bottom[0].y))
-        bottom.push(vertical ? Qt.point(bottom[bottom.length - 1].x, content)
-                             : Qt.point(content, bottom[bottom.length - 1].y))
-      }
-    }
-
-    outline = top
-    mirrorOutline = bottom
-
-    // Close the filled region: back along the mirrored outline when there is
-    // one, otherwise straight along the originDepth.
-    var closed = top.slice()
-    if (bottom.length > 0) {
-      for (var j = bottom.length - 1; j >= 0; j--) closed.push(bottom[j])
-    } else {
-      closed.push(vertical ? Qt.point(originDepth, content) : Qt.point(content, originDepth))
-      closed.push(vertical ? Qt.point(originDepth, 0) : Qt.point(0, originDepth))
-    }
-    area = closed
-  }
-
-  function step(dt) {
-    // The capture is shared and runs at the most generous band count any
-    // monitor asked for, so fold it down to what this widget draws. Reading
-    // the first barCount entries would show only the bottom of the spectrum.
-    var raw = Model.resample(service ? service.levels : [], barCount, _raw)
-
-    // Shape the signal before it is smoothed in time: sensitivity, then the
-    // perceptual curve, then the spatial smoother that turns spiky FFT bins
-    // into something that reads as music.
-    var targets = _targets
-    for (var i = 0; i < barCount; i++) {
-      targets[i] = Model.curve(Model.clamp(raw[i] * sensitivity, 0, 1), exponent)
-    }
-    var smoothed = Model.smoothSpatial(targets, smoothing, _smoothed)
-
-    // Write the frame into the spare buffers, then swap them in. Assigning a
-    // mutated array back to itself would emit no change signal, so the swap is
-    // what makes the render update — and it is why nothing here allocates.
-    var nextDisplay = _spareDisplay
-    var nextPeaks = _sparePeaks
-    var nextHangs = _spareHangs
-    for (var j = 0; j < barCount; j++) {
-      var level = Model.advance(display[j] || 0, smoothed[j], dt, riseRate, fallRate)
-      Model.advancePeak(peaks[j] || 0, level, dt, hangs[j] || 0, 0.9, _cap)
-      nextDisplay[j] = level
-      nextPeaks[j] = _cap.value
-      nextHangs[j] = _cap.hang
-    }
-
-    _spareDisplay = display
-    _sparePeaks = peaks
-    _spareHangs = hangs
-    display = nextDisplay
-    peaks = nextPeaks
-    hangs = nextHangs
-
-    if (shaped) rebuildShape()
-  }
-
-  // Nothing to animate while the widget is folded away and the bars have
-  // already settled at zero.
-  FrameAnimation {
-    running: !root.quiet || root.display.some(v => v > 0.001)
-    onTriggered: root.step(Math.min(frameTime, 0.1))
   }
 
   // No `visible` binding here: the bar's slot sizes itself from implicitWidth,
@@ -426,250 +161,21 @@ BarWidget {
 
   clip: true
 
-  Item {
-    id: canvas
+  Spectrum {
     anchors.centerIn: parent
-    width: root.vertical ? root.span : root.content
-    height: root.vertical ? root.content : root.span
+    width: implicitWidth
+    height: implicitHeight
+    service: root.service
+    look: root.look
+    vertical: root.vertical
+    barCount: root.barCount
+    thickness: root.thickness
+    gap: root.gap
+    span: root.span
+    foreground: root.bar ? root.bar.barForeground : Color.bar.text
     opacity: root.quiet ? 0 : 1
 
     Behavior on opacity { NumberAnimation { duration: root.reducedMotion ? 0 : 200 } }
-
-    // ---- Bars and Dots -----------------------------------------------------
-
-    Repeater {
-      model: root.shaped ? 0 : root.barCount
-
-      Item {
-        id: band
-        readonly property real level: root.display[index] || 0
-        readonly property real peak: root.peaks[index] || 0
-        readonly property color tint: root.bandColor(index, level)
-
-        // The band's extent along the growth axis, as two depth coordinates.
-        readonly property real near: Math.min(root.depthAt(level, -1),
-                                              root.mode === "Mirror" ? root.depthAt(level, 1) : root.originDepth)
-        readonly property real far: Math.max(root.depthAt(level, -1),
-                                             root.mode === "Mirror" ? root.depthAt(level, 1) : root.originDepth)
-
-        // The same two coordinates for the falling peak, which Trail draws as
-        // a ghost of the bar it is chasing.
-        readonly property real peakNear: Math.min(root.depthAt(peak, -1),
-                                                  root.mode === "Mirror" ? root.depthAt(peak, 1) : root.originDepth)
-        readonly property real peakFar: Math.max(root.depthAt(peak, -1),
-                                                 root.mode === "Mirror" ? root.depthAt(peak, 1) : root.originDepth)
-
-        x: root.vertical ? 0 : index * root.pitch
-        y: root.vertical ? index * root.pitch : 0
-        width: root.vertical ? canvas.width : root.thickness
-        height: root.vertical ? root.thickness : canvas.height
-
-        // The band's extent across the growth axis — its width on a horizontal
-        // bar, its height on a vertical one.
-        readonly property real crossSize: root.vertical ? height : width
-
-        // A band is always at least a hairline: an empty bar should read as a
-        // quiet channel, not as a broken widget.
-        // Trail: the bar, chased by a translucent ghost still falling from the
-        // band's last peak. Drawn first so the solid bar sits on top of it.
-        Rectangle {
-          visible: root.style === "Trail"
-          radius: Math.min(root.thickness, 5) / 2
-          color: band.tint
-          opacity: 0.22
-          x: root.vertical ? band.peakNear : 0
-          y: root.vertical ? 0 : band.peakNear
-          width: root.vertical ? Math.max(1, band.peakFar - band.peakNear) : band.width
-          height: root.vertical ? band.height : Math.max(1, band.peakFar - band.peakNear)
-        }
-
-        Rectangle {
-          visible: root.style === "Bars" || root.style === "Trail"
-          radius: Math.min(root.thickness, 5) / 2
-          color: band.tint
-          opacity: 0.35 + 0.65 * band.level
-          x: root.vertical ? band.near : 0
-          y: root.vertical ? 0 : band.near
-          width: root.vertical ? Math.max(1, band.far - band.near) : band.width
-          height: root.vertical ? band.height : Math.max(1, band.far - band.near)
-        }
-
-        // Glow: no height at all. The band is a full-depth cell and the level
-        // reads as brightness, which stays legible on a bar too short to show
-        // a useful difference in length.
-        Rectangle {
-          visible: root.style === "Glow"
-          radius: Math.min(root.thickness, 5) / 2
-          color: band.tint
-          // No Behavior here. The level already arrives time-smoothed by
-          // attack/release, and an animation restarting on every frame damps
-          // it into a near-constant value — the band stops reacting at all.
-          //
-          // Brightness is the only channel this style has, so it gets a floor
-          // and a curve of its own. The floor keeps the strip readable as a row
-          // of cells when the room is quiet, instead of an empty slot; the
-          // curve lifts the quiet bands, which otherwise disappear entirely
-          // and leave only the bass looking like a few static blocks.
-          opacity: 0.14 + 0.86 * Math.pow(band.level, 0.65)
-          x: 0
-          y: 0
-          width: root.vertical ? canvas.width : band.width
-          height: root.vertical ? band.height : canvas.height
-        }
-
-        // Beads: one disc per band riding where the top of the bar would be,
-        // so the spectrum reads as a contour of dots rather than a solid mass.
-        Repeater {
-          model: root.style === "Beads" ? (root.mode === "Mirror" ? 2 : 1) : 0
-
-          Rectangle {
-            readonly property real size: Math.max(2, root.thickness)
-            readonly property real depth: root.depthAt(band.level, index === 1 ? 1 : -1)
-
-            color: band.tint
-            opacity: 0.45 + 0.55 * band.level
-            radius: size / 2
-            width: size
-            height: size
-            x: root.vertical ? Math.max(0, Math.min(canvas.width - size, depth - size / 2))
-                             : (band.width - size) / 2
-            y: root.vertical ? (band.height - size) / 2
-                             : Math.max(0, Math.min(canvas.height - size, depth - size / 2))
-          }
-        }
-
-        // Dots: a fixed ladder of cells lit from the origin outwards, so the
-        // level reads as a quantity rather than as a length.
-        //
-        // The cells carry their own state in the model rather than reading the
-        // band's level out of the enclosing scope: a nested delegate resolves
-        // that inconsistently, and a cell that silently reads `undefined` just
-        // renders a dead grid.
-        readonly property var cells: {
-          if (root.style !== "Dots") return []
-          var out = []
-          for (var i = 0; i < matrix.rows; i++) {
-            var at = (i + 0.5) / matrix.rows
-            out.push({
-              lit: at <= level,
-              // The cell the falling peak currently sits in, so Dots gets the
-              // same peak-hold read-out the other styles have.
-              cap: root.peakHold && at <= peak && (i + 1.5) / matrix.rows > peak,
-              offset: root.mode === "Mirror"
-                ? root.span / 2 + (i - (matrix.rows - 1) / 2) * matrix.pitch - matrix.cell / 2
-                : (root.fromFarEnd ? root.span - (i + 1) * matrix.pitch : i * matrix.pitch)
-            })
-          }
-          return out
-        }
-
-        Repeater {
-          model: band.cells
-
-          Rectangle {
-            required property var modelData
-
-            radius: Math.min(root.thickness, matrix.cell) / 3
-            color: band.tint
-            opacity: modelData.cap ? 1 : (modelData.lit ? (0.5 + 0.4 * band.level) : 0.07)
-            x: root.vertical ? modelData.offset : 0
-            y: root.vertical ? 0 : modelData.offset
-            width: root.vertical ? matrix.cell : band.width
-            height: root.vertical ? band.height : matrix.cell
-
-            Behavior on opacity { NumberAnimation { duration: root.reducedMotion ? 0 : 90 } }
-          }
-        }
-
-        // Peak caps: one on the growing edge, two when the band grows both ways.
-        Repeater {
-          // Dots lights its own cap cell, Trail *is* the peak, and Glow has no
-          // position to put one at.
-          model: root.peakHold && capStyles.indexOf(root.style) >= 0
-            ? (root.mode === "Mirror" ? 2 : 1) : 0
-
-          Rectangle {
-            readonly property real depth: root.depthAt(band.peak, index === 1 ? 1 : -1)
-            // Beads caps its contour with a smaller bead rather than a bar,
-            // which would read as a different style entirely.
-            readonly property bool bead: root.style === "Beads"
-            readonly property real thick: bead ? Math.max(2, root.thickness * 0.6)
-                                               : root.capThickness
-            readonly property real across: bead ? thick : band.crossSize
-
-            color: band.tint
-            opacity: 0.9
-            radius: bead ? thick / 2 : 1
-            x: root.vertical ? depth - (root.fromFarEnd && root.mode !== "Mirror" ? 0 : thick)
-                             : (band.width - across) / 2
-            y: root.vertical ? (band.height - across) / 2
-                             : depth - (root.fromFarEnd && root.mode !== "Mirror" ? 0 : thick)
-            width: root.vertical ? thick : across
-            height: root.vertical ? across : thick
-          }
-        }
-      }
-    }
-
-    // Cell geometry for the Dots style, derived once rather than per band.
-    QtObject {
-      id: matrix
-      // Cells are deliberately shorter than the bars are wide: a bar height
-      // only ever offers a dozen or so pixels, and a ladder needs enough rungs
-      // that a level reads as a quantity rather than as on/off. Both scale
-      // with the theme so the ladder survives a HiDPI bar.
-      readonly property real cell: Math.max(1, Style.space(2))
-      readonly property real gap: Math.max(1, Style.space(1))
-      readonly property real pitch: cell + gap
-      readonly property int rows: Math.max(3, Math.floor((root.span + gap) / pitch))
-    }
-
-    // ---- Wave and Area -----------------------------------------------------
-
-    Shape {
-      anchors.fill: parent
-      visible: root.shaped
-      asynchronous: false
-
-      // The filled body. Drawn under the stroke so the outline stays crisp.
-      ShapePath {
-        strokeWidth: 0
-        strokeColor: "transparent"
-
-        fillGradient: LinearGradient {
-          x1: 0
-          y1: 0
-          x2: root.vertical ? 0 : canvas.width
-          y2: root.vertical ? canvas.height : 0
-          GradientStop { position: 0.0; color: root.fillStop(0.0) }
-          GradientStop { position: 0.34; color: root.fillStop(0.34) }
-          GradientStop { position: 0.67; color: root.fillStop(0.67) }
-          GradientStop { position: 1.0; color: root.fillStop(1.0) }
-        }
-
-        PathPolyline { path: root.area }
-      }
-
-      ShapePath {
-        strokeWidth: root.capThickness
-        strokeColor: root.palette === "Spectrum" ? root.accentColor : root.stopColor(1.0)
-        fillColor: "transparent"
-        capStyle: ShapePath.RoundCap
-        joinStyle: ShapePath.RoundJoin
-
-        PathPolyline { path: root.outline }
-      }
-
-      ShapePath {
-        strokeWidth: root.mode === "Mirror" ? root.capThickness : 0
-        strokeColor: root.palette === "Spectrum" ? root.accentColor : root.stopColor(1.0)
-        fillColor: "transparent"
-        capStyle: ShapePath.RoundCap
-        joinStyle: ShapePath.RoundJoin
-
-        PathPolyline { path: root.mirrorOutline }
-      }
-    }
   }
 
   // Something is wrong with the capture rather than merely quiet — say so
@@ -690,9 +196,11 @@ BarWidget {
   // style stops working. `bar.showTooltip` avoids all three.
   readonly property bool tooltipHovered: visible && opacity > 0 && mouse.containsMouse
 
+  readonly property bool lineStyle: style === "Spikes" || style === "Steps" || style === "Wave"
   readonly property string tooltipText: dead
     ? (service && service.failure !== "" ? service.failure : "Audio capture unavailable")
-    : style + " · " + palette + "\nScroll: style · Right click: colour"
+    : style + (lineStyle && filled ? " (filled)" : "") + " · " + palette + " · " + mode
+      + "\nScroll: style · Right click: colour"
 
   // Cycling while hovered should update what the tooltip says.
   onTooltipTextChanged: if (tooltipHovered && bar) bar.showTooltip(root, tooltipText)

@@ -3,6 +3,62 @@
 Notable changes to Spectra. Versions follow [semver](https://semver.org): the
 `version` field in `manifest.json` is what the marketplace orders updates by.
 
+## 2.0.0
+
+The renderer is new, and so is the settings form. Every 1.x setting still
+works; see "Upgrading from 1.x" in the README.
+
+### Changed
+
+- **It costs a sixth of what it did.** With music playing on two monitors, the
+  shell spent 35–52% of one core on 1.4, depending on the style; it now spends
+  about 6–7%, whatever the style. Measured, what a frame costs is almost
+  entirely the bar redrawing, not the spectrum, so the work went into drawing
+  fewer frames:
+  - Every style is now one fragment shader, `spectrum.frag`. The Repeaters,
+    Shape and per-band bindings are gone. A Shape — which drew the line styles —
+    takes two frames per update, and so would a Canvas; the shader takes one.
+  - Frames are captured and drawn at 30 per second by default. On a 60Hz screen
+    that is every other refresh, and drawing on every refresh cost over four
+    times as much. `framerate: 60` in `shell.json` restores the old rate.
+  - A frame that would put nothing on a different pixel is not drawn.
+- **Seven styles instead of ten.** Three of the ten were another style plus an
+  option, and now are: Area is Wave with `filled`, Ridge is Steps with `filled`,
+  and Trail is Bars with `peak: Trail`. An entry still naming one keeps its look.
+- **`feel` replaces five sliders.** Attack, release, punch, smoothing and
+  sensitivity become Smooth, Balanced and Punchy. Any of the five set in
+  `shell.json` still overrides the preset. Framerate and the fold and suspend
+  timings leave the form too; they are documented in the README. The form goes
+  from 20 fields to 13.
+- `peakHold` becomes `peak` (`Cap`, `Trail`, `Off`); `peakHold: false` still
+  means `Off`.
+- The line styles are anti-aliased, and Wave is a smooth curve through the
+  bands rather than straight segments between them.
+
+### Added
+
+- **Stereo.** The capture is stereo. Mirror draws the left channel up and the
+  right channel down, where it used to draw the same mono signal twice.
+- **Butterfly**, a new direction: the two channels side by side, with the bass
+  meeting in the middle and the colours fanning out from it.
+- **Cover**, a new colour: taken from the album art of whatever is playing, and
+  sweeping like Spectrum until the art has loaded.
+
+### Fixed
+
+- **`source` hid the widget.** The bar reserves an entry's `source` key for
+  custom QML modules, so setting it turned Spectra's entry into a request for a
+  QML file that did not exist, and the widget disappeared. The setting is now
+  `device`.
+- **Spectrum and Gradient now colour the line** of Spikes, Steps and Wave. The
+  line was always drawn in the accent colour; only the faint body underneath
+  swept.
+- **Dots in Mirror light outward from the centre line.** They lit from the top
+  edge down.
+- **Dots no longer rebuilds its ladder every frame.** Its cells were a model
+  recreated per frame, so the whole ladder was destroyed and rebuilt sixty times
+  a second, and the cells' fade never ran.
+
 ## 1.4.0
 
 ### Added

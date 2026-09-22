@@ -1,44 +1,27 @@
-// Model.js is deliberately free of QML so it can be tested without a running
-// shell. It is not a module — the shell loads it as a QML JS resource — so it
-// is read and evaluated here with the handful of Qt globals it touches stubbed
-// out.
+// Tests for Model.js, everything that can be checked without a compositor.
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
-import { dirname, join } from "node:path";
-
-const here = dirname(fileURLToPath(import.meta.url));
-const source = readFileSync(join(here, "..", "Model.js"), "utf8");
-
-// The colour helpers are the only part that reaches for Qt. Stubbing it keeps
-// them in the test surface instead of forcing them out of the file.
-const Qt = {
-  rgba: (r, g, b, a) => ({ r, g, b, a }),
-  hsva: (h, s, v, a) => ({ h, s, v, a }),
-};
-
-const Model = new Function("Qt", `${source}\nreturn {
-  asciiRange, silenceFloor, startupGrace, zeros, clamp, oneOf, mergeAsks,
-  parseFrame, resample, truncate, smoothSpatial, curve, advance, advancePeak,
-  mix, spectrumColor, alpha, isPlaybackStream, cavaConfig
-}`)(Qt);
+import { Model } from "./model.mjs";
 
 const defaults = {
   bars: 24, framerate: 60, noiseReduction: 45,
   quietDelay: 2000, sleepDelay: 6000, source: "",
 };
 
-test("parseFrame drops the trailing separator", () => {
-  const frame = Model.parseFrame("0;500;1000;", 3, 1000);
-  assert.deepEqual(frame.levels, [0, 0.5, 1]);
-  assert.equal(frame.peak, 1);
+// A stereo frame is the left channel treble-first, then the right bass-first —
+// cava's own terminal layout. Both come back bass-first.
+test("parseFrame splits a stereo frame into two bass-first channels", () => {
+  const frame = Model.parseFrame("300;200;100;400;500;600;", 3, 1000);
+  assert.deepEqual(frame.left, [0.1, 0.2, 0.3]);
+  assert.deepEqual(frame.right, [0.4, 0.5, 0.6]);
+  assert.equal(frame.peak, 0.6);
 });
 
 test("parseFrame pads a short frame and clamps a long band", () => {
-  const frame = Model.parseFrame("2000;", 3, 1000);
-  assert.deepEqual(frame.levels, [1, 0, 0]);
+  const frame = Model.parseFrame("2000;", 2, 1000);
+  assert.deepEqual(frame.left, [0, 1]);
+  assert.deepEqual(frame.right, [0, 0]);
 });
 
 test("parseFrame rejects empty input rather than reporting silence", () => {
@@ -48,8 +31,9 @@ test("parseFrame rejects empty input rather than reporting silence", () => {
 });
 
 test("parseFrame treats unparseable bands as zero", () => {
-  const frame = Model.parseFrame("abc;500;", 2, 1000);
-  assert.deepEqual(frame.levels, [0, 0.5]);
+  const frame = Model.parseFrame("abc;500;", 1, 1000);
+  assert.deepEqual(frame.left, [0]);
+  assert.deepEqual(frame.right, [0.5]);
 });
 
 // The bug this suite exists for: a widget drawing fewer bands than the shared
@@ -240,10 +224,10 @@ test("isPlaybackStream needs a stream, and takes either signal", () => {
 
 test("cavaConfig emits the raw ascii contract the parser expects", () => {
   const config = Model.cavaConfig(24, 60, 45, "");
-  assert.match(config, /^bars = 24$/m);
+  assert.match(config, /^bars = 48$/m, "bars is per channel, and the capture is stereo");
   assert.match(config, /^framerate = 60$/m);
   assert.match(config, /^data_format = ascii$/m);
-  assert.match(config, /^channels = mono$/m);
+  assert.match(config, /^channels = stereo$/m);
   assert.match(config, new RegExp(`^ascii_max_range = ${Model.asciiRange}$`, "m"));
   assert.match(config, /^raw_target = \/dev\/stdout$/m);
 });
@@ -273,3 +257,112 @@ test("truncate resizes a buffer in place", () => {
   Model.truncate(buffer, 2);
   assert.deepEqual(buffer, [1, 2]);
 });
+
+test("resolve fills in every default from an empty entry", () => {
+  const look = Model.resolve({});
+  assert.equal(look.style, "Bars");
+  assert.equal(look.mode, "Bottom");
+  assert.equal(look.palette, "Accent");
+  assert.equal(look.peak, "Cap");
+  assert.equal(look.filled, false);
+  assert.equal(look.bars, 28);
+  assert.equal(look.device, "");
+  assert.equal(Model.resolve(null).style, "Bars");
+});
+
+test("resolve carries 1.4's retired styles forward as options", () => {
+  assert.deepEqual(pickLook(Model.resolve({ style: "Area" })), { style: "Wave", filled: true, peak: "Cap" });
+  assert.deepEqual(pickLook(Model.resolve({ style: "ridge" })), { style: "Steps", filled: true, peak: "Cap" });
+  assert.deepEqual(pickLook(Model.resolve({ style: "Trail" })), { style: "Bars", filled: false, peak: "Trail" });
+});
+
+test("resolve maps the old peakHold switch onto peak", () => {
+  assert.equal(Model.resolve({ peakHold: false }).peak, "Off");
+  assert.equal(Model.resolve({ peakHold: true }).peak, "Cap");
+  assert.equal(Model.resolve({ peakHold: false, peak: "Trail" }).peak, "Trail");
+});
+
+test("resolve takes a feel preset, and lets a raw knob override it", () => {
+  const smooth = Model.resolve({ feel: "Smooth" });
+  const punchy = Model.resolve({ feel: "punchy" });
+  assert.ok(smooth.fallRate < punchy.fallRate, "Smooth should sink slower than Punchy");
+  assert.ok(smooth.smoothing > punchy.smoothing);
+  const overridden = Model.resolve({ feel: "Smooth", release: 100 });
+  assert.equal(overridden.fallRate, 2 + 100 * 0.28);
+  assert.equal(Model.resolve({ feel: "Wobbly" }).riseRate, Model.resolve({}).riseRate);
+});
+
+test("resolve clamps numbers and accepts them written as strings", () => {
+  assert.equal(Model.resolve({ bars: 999 }).bars, 64);
+  assert.equal(Model.resolve({ bars: "16" }).bars, 16);
+  assert.equal(Model.resolve({ bars: "lots" }).bars, 28);
+  assert.equal(Model.resolve({ device: "  sink.monitor " }).device, "sink.monitor");
+});
+
+test("Butterfly draws an even number of bands, half captured per channel", () => {
+  assert.equal(Model.drawnBands(27, "Butterfly"), 28);
+  assert.equal(Model.capturedBands(27, "Butterfly"), 14);
+  assert.equal(Model.drawnBands(27, "Mirror"), 27);
+  assert.equal(Model.capturedBands(27, "Mirror"), 27);
+});
+
+test("arrange keeps the channels apart in Mirror", () => {
+  const a = [], b = [];
+  Model.arrange([0.1, 0.2], [0.8, 0.9], 2, "Mirror", a, b, []);
+  assert.deepEqual(a, [0.1, 0.2]);
+  assert.deepEqual(b, [0.8, 0.9]);
+});
+
+test("arrange puts the bass in the middle for Butterfly", () => {
+  const a = [];
+  Model.arrange([0.1, 0.2], [0.3, 0.4], 4, "Butterfly", a, [], []);
+  assert.deepEqual(a, [0.2, 0.1, 0.3, 0.4]);
+});
+
+test("arrange draws the louder channel everywhere else", () => {
+  const a = [];
+  Model.arrange([0.1, 0.9], [0.5, 0.2], 2, "Bottom", a, [], []);
+  assert.deepEqual(a, [0.5, 0.9]);
+});
+
+test("animate moves a side toward its targets and raises the caps", () => {
+  const side = { level: [], peak: [], hang: [] };
+  const scratch = { shaped: [], smoothed: [], cap: { value: 0, hang: 0 } };
+  const look = Model.resolve({});
+  for (let i = 0; i < 30; i++) Model.animate(side, [0, 1, 0], 1 / 60, look, scratch);
+  assert.ok(side.level[1] > 0.9, `${side.level[1]}`);
+  assert.ok(side.level[0] > 0 && side.level[0] < side.level[1], "smoothing should spread the peak");
+  assert.ok(side.peak[1] >= side.level[1]);
+});
+
+test("moved skips a frame that lands on the same pixels", () => {
+  const keys = [];
+  assert.equal(Model.moved(keys, [[0.5, 0.25]], 20), true, "the first frame is always new");
+  assert.equal(Model.moved(keys, [[0.51, 0.24]], 20), false, "under half a pixel either way");
+  assert.equal(Model.moved(keys, [[0.6, 0.24]], 20), true);
+  assert.deepEqual(keys, [12, 5]);
+});
+
+test("moved notices a change in shape as well as in value", () => {
+  const keys = [];
+  Model.moved(keys, [[0.5, 0.5]], 10);
+  assert.equal(Model.moved(keys, [[0.5]], 10), true);
+  assert.equal(Model.moved(keys, [[0.5], [0]], 10), true);
+});
+
+// spectrum.frag unpacks with mod and floor; this is the same arithmetic.
+test("packBand round-trips a level and a peak through one float", () => {
+  const unpack = (v) => [(v % 4096) / 4095, Math.floor(v / 4096) / 4095];
+  for (const [level, peak] of [[0, 0], [1, 1], [0.5, 0.25], [0.001, 0.999]]) {
+    const [l, p] = unpack(Model.packBand(level, peak));
+    assert.ok(Math.abs(l - level) <= 0.5 / 4095 + 1e-12, `level ${level} -> ${l}`);
+    assert.ok(Math.abs(p - peak) <= 0.5 / 4095 + 1e-12, `peak ${peak} -> ${p}`);
+  }
+  assert.ok(Model.packBand(1, 1) < 2 ** 24, "must stay inside a float's exact integers");
+  assert.equal(Model.packBand(undefined, undefined), 0);
+  assert.equal(Model.packBand(2, -1), 4095, "out-of-range values are clamped");
+});
+
+function pickLook(look) {
+  return { style: look.style, filled: look.filled, peak: look.peak };
+}
