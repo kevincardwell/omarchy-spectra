@@ -3,6 +3,15 @@
 Notable changes to Spectra. Versions follow [semver](https://semver.org): the
 `version` field in `manifest.json` is what the marketplace orders updates by.
 
+## 2.0.1
+
+### Fixed
+
+- **Theme colours on Qt 6.12.** Qt 6.12 adds its own `Color` type to QtQuick,
+  which hides the shell's palette, so the bars and the tooltip lost their theme
+  colours. Spectra now names the palette `Commons.Color`, as the shell itself
+  does since omacom/omarchy#14553. Nothing changes on older Qt.
+
 ## 2.0.0
 
 The renderer is new, and so is the settings form. Every 1.x setting still

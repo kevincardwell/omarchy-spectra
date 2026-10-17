@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Window
 import qs.Commons
+import qs.Commons as Commons
 import "Model.js" as Model
 
 // The spectrum itself: the motion between cava's frames, and the one shader
@@ -28,7 +29,7 @@ Item {
   readonly property real cell: Math.max(1, Style.space(2))
   readonly property real cellGap: Math.max(1, Style.space(1))
   // The Foreground palette's colour. The bar hands in its own text colour.
-  property color foreground: Color.bar.text
+  property color foreground: Commons.Color.bar.text
 
   readonly property string mode: look.mode
   readonly property string peak: look.peak
@@ -40,8 +41,8 @@ Item {
   implicitWidth: vertical ? span : content
   implicitHeight: vertical ? content : span
 
-  readonly property color accentColor: Color.accent
-  readonly property color mutedColor: Color.muted
+  readonly property color accentColor: Commons.Color.accent
+  readonly property color mutedColor: Commons.Color.muted
   readonly property color baseColor: {
     if (look.palette === "Foreground") return foreground
     if (look.palette === "Muted") return mutedColor

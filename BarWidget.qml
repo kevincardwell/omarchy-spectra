@@ -2,6 +2,7 @@ import QtQuick
 import Quickshell
 import Quickshell.Io
 import qs.Commons
+import qs.Commons as Commons
 import qs.Ui
 import "Model.js" as Model
 
@@ -172,7 +173,7 @@ BarWidget {
     thickness: root.thickness
     gap: root.gap
     span: root.span
-    foreground: root.bar ? root.bar.barForeground : Color.bar.text
+    foreground: root.bar ? root.bar.barForeground : Commons.Color.bar.text
     opacity: root.quiet ? 0 : 1
 
     Behavior on opacity { NumberAnimation { duration: root.reducedMotion ? 0 : 200 } }
@@ -184,7 +185,7 @@ BarWidget {
     anchors.centerIn: parent
     visible: root.dead
     text: "󰝟"
-    color: Color.urgent
+    color: Commons.Color.urgent
     font.family: root.bar ? root.bar.fontFamily : "monospace"
     font.pixelSize: Style.font.body
   }

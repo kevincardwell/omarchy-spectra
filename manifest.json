@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "radius.spectra",
   "name": "Spectra",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "author": "Kevin Cardwell",
   "license": "MIT",
   "description": "Audio spectrum for the Omarchy bar. Seven styles from bars and beads to spikes, steps and curves, in stereo, coloured by your theme or the album art; one shared cava capture, and one shader that draws only the frames that change.",
